@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react'
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> f268618 (frontend initial setup)
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -28,6 +31,7 @@ export default defineConfig({
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+<<<<<<< HEAD
 >>>>>>> 6d232fe (frontend initial setup)
 =======
 export default defineConfig({
@@ -52,4 +56,7 @@ export default defineConfig({
     },
   },
 >>>>>>> b16bc29 (changes in sever due to error)
+=======
+>>>>>>> 686cf58 (frontend initial setup)
+>>>>>>> f268618 (frontend initial setup)
 })

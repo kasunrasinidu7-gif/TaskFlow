@@ -34,7 +34,7 @@ const User = {
        LIMIT 1`,
       [email]
     );
-    return rows[0] || null;
+    return rows[0] || null; //
   },
 
   /**

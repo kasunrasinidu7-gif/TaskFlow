@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 // src/pages/Login/LoginPage.jsx
 // ─────────────────────────────────────────────────────────────────────────────
 // Login page — the first screen users see.
@@ -171,3 +172,15 @@ export default function LoginPage() {
     </div>
   )
 }
+=======
+function LoginPage() {
+  return (
+    <div>
+      <h1>Login Page 🔐</h1>
+      <p>Welcome to TaskFlow Login</p>
+    </div>
+  );
+}
+
+export default LoginPage;
+>>>>>>> 43213ca (add login page)

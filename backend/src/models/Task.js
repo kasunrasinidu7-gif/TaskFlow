@@ -1,9 +1,12 @@
 /**
- * models/Task.js
- * All SQL queries for the tasks and assigned_tasks tables.
- *
- * IMPORTANT FIX: mysql2 pool.execute() does NOT accept JS integers for LIMIT ?.
- * All LIMIT params must be cast to integer with parseInt() before use.
+ task.js
+************
+location : backend --> models ---> task.js 
+
+In here we all sql commands used to : tasks and assigned_tasks 
+
+whenever you use LIMIT ? in an SQL query with mysql2, 
+make sure to convert the value to an integer using parseInt() first to avoid errors.
  */
 
 const pool = require('../config/db');

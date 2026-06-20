@@ -4,8 +4,11 @@ import react from '@vitejs/plugin-react'
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 >>>>>>> f268618 (frontend initial setup)
+=======
+>>>>>>> a883cae (changes in sever due to error)
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -58,5 +61,31 @@ export default defineConfig({
 >>>>>>> b16bc29 (changes in sever due to error)
 =======
 >>>>>>> 686cf58 (frontend initial setup)
+<<<<<<< HEAD
 >>>>>>> f268618 (frontend initial setup)
+=======
+=======
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: 3000,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      },
+      // Socket.io requires its own proxy entry so WebSocket upgrades work
+      '/socket.io': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        ws: true,   // Enable WebSocket proxying
+      },
+      '/uploads': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      },
+    },
+  },
+>>>>>>> 35658d3 (changes in sever due to error)
+>>>>>>> a883cae (changes in sever due to error)
 })

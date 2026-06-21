@@ -133,3 +133,7 @@ CREATE TABLE notifications (
   CONSTRAINT fk_notif_task FOREIGN KEY (TaskID)
     REFERENCES tasks(TaskID) ON DELETE SET NULL ON UPDATE CASCADE
 );
+
+ALTER TABLE users
+  ADD COLUMN RequirePasswordChange TINYINT(1) NOT NULL DEFAULT 0,
+  ADD COLUMN PasswordChangedAt     DATETIME   NULL;

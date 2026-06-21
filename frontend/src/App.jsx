@@ -12,6 +12,8 @@ import ProtectedRoute            from './components/layout/ProtectedRoute'
 import AppLayout                 from './components/layout/AppLayout'
 
 import LoginPage                 from './pages/Login/LoginPage'
+import ForgotPasswordPage        from './pages/ForgotPassword/ForgotPasswordPage'
+import ChangePasswordPage        from './pages/ChangePassword/ChangePasswordPage'
 import DashboardPage             from './pages/Dashboard/DashboardPage'
 import UsersPage                 from './pages/Users/UsersPage'
 import ProjectsPage              from './pages/Projects/ProjectsPage'
@@ -30,8 +32,12 @@ export default function App() {
       <ToastProvider>
         <Routes>
 
-          {/* ── Public route ──────────────────────────────────────────── */}
-          <Route path="/login" element={<LoginPage />} />
+          {/* ── Public routes ─────────────────────────────────────────── */}
+          <Route path="/login"           element={<LoginPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+
+          {/* Change password — needs a JWT but bypasses ProtectedRoute's dashboard redirect */}
+          <Route path="/change-password" element={<ChangePasswordPage />} />
 
           {/* ── Protected routes — require valid JWT ──────────────────── */}
           <Route element={<ProtectedRoute />}>

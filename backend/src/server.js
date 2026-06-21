@@ -75,8 +75,12 @@ server.listen(PORT, () => {
 // assigned user — but only if one hasn't already been sent today.
 // The Task.getDueToday() query prevents duplicate notifications.
 
-const Task         = require('./models/Task');
-const Notification = require('./models/Notification');
+const Task                    = require('./models/Task');
+const Notification            = require('./models/Notification');
+const { verifyConnection }    = require('./utils/emailService');
+
+// Verify email SMTP on startup (logs warning if not configured, does not crash)
+verifyConnection();
 
 async function sendDeadlineNotifications() {
   try {

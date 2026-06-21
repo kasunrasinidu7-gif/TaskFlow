@@ -8,7 +8,9 @@
 
 const bcrypt   = require('bcrypt');
 const User     = require('../models/User');
-const { sendSuccess, sendError } = require('../utils/response');
+const { sendSuccess, sendError }       = require('../utils/response');
+const { generateTemporaryPassword }    = require('../utils/generatePassword');
+const { sendWelcomeEmail }             = require('../utils/emailService');
 
 const userController = {
 
@@ -47,10 +49,13 @@ const userController = {
   /**
    * POST /api/users
    * Create a new user (Admin only).
+   * Generates a temporary password, saves the hash, and emails the user.
+   * The Password field in the request body is NO LONGER accepted —
+   * it is always system-generated to ensure security.
    */
   async create(req, res) {
     try {
-      const { Name, Email, Password, RoleName } = req.body;
+      const { Name, Email, RoleName } = req.body;
 
       // Check email isn't already taken
       const existing = await User.findByEmail(Email);
@@ -62,14 +67,25 @@ const userController = {
       const role = await User.findRoleByName(RoleName);
       if (!role) return sendError(res, 'Invalid role', 400);
 
-      // Hash the password before storing
-      const passwordHash = await bcrypt.hash(Password, 12);
+      // Generate a secure random temporary password
+      const temporaryPassword = generateTemporaryPassword();
+      const passwordHash      = await bcrypt.hash(temporaryPassword, 12);
 
       const newId = await User.create({
         name: Name, email: Email, passwordHash, roleId: role.RoleID,
+        requirePasswordChange: true,
       });
 
-      return sendSuccess(res, { UserID: newId }, 'User created successfully', 201);
+      // Send welcome email with the temporary password.
+      // We do NOT log the temporaryPassword anywhere for security.
+      sendWelcomeEmail({
+        name:              Name,
+        email:             Email,
+        roleName:          RoleName,
+        temporaryPassword,
+      }).catch(err => console.error('Welcome email failed:', err.message));
+
+      return sendSuccess(res, { UserID: newId }, 'User created and invitation email sent.', 201);
     } catch (err) {
       console.error('create user error:', err);
       return sendError(res, 'Failed to create user', 500);

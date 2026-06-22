@@ -266,7 +266,10 @@ export default function TaskDetailPage() {
                     </div>
                     <div className="flex items-center gap-1">
                       <a
-                        href={`/api/attachments/${a.AttachmentID}/download`}
+                        href={a.FilePath}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        download={a.FileName}
                         className="p-1.5 text-[var(--text-light)] hover:text-primary transition-colors rounded"
                         title="Download"
                       >

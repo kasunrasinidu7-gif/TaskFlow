@@ -1,9 +1,16 @@
 /**
  * models/Task.js
- * All SQL queries for the tasks and assigned_tasks tables.
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Task Model — Supabase PostgreSQL version.
  *
- * IMPORTANT FIX: mysql2 pool.execute() does NOT accept JS integers for LIMIT ?.
- * All LIMIT params must be cast to integer with parseInt() before use.
+ * Key changes from MySQL:
+ *   - GROUP_CONCAT(DISTINCT x SEPARATOR ', ') → STRING_AGG(DISTINCT x, ', ')
+ *   - CURDATE()  → CURRENT_DATE
+ *   - INSERT IGNORE → ON CONFLICT DO NOTHING
+ *   - LIMIT ? now works natively in pg — no integer workaround needed
+ *   - All column names aliased with quoted casing for controller compatibility
+ *   - GROUP BY must include all non-aggregate columns (PostgreSQL strict mode)
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 
 const pool = require('../config/db');
@@ -12,15 +19,24 @@ const Task = {
 
   async findAll({ search = '', status = '', priority = '', projectId = '', userId, roleName } = {}) {
     let sql = `
-      SELECT t.*,
-             p.ProjectName,
-             u.Name AS CreatorName,
-             GROUP_CONCAT(DISTINCT au.Name SEPARATOR ', ') AS AssignedUsers
+      SELECT t.taskid      AS "TaskID",
+             t.projectid   AS "ProjectID",
+             t.title       AS "Title",
+             t.description AS "Description",
+             t.priority    AS "Priority",
+             t.status      AS "Status",
+             t.duedate     AS "DueDate",
+             t.createdby   AS "CreatedBy",
+             t.createdat   AS "CreatedAt",
+             t.updatedat   AS "UpdatedAt",
+             p.projectname AS "ProjectName",
+             u.name        AS "CreatorName",
+             STRING_AGG(DISTINCT au.name, ', ') AS "AssignedUsers"
       FROM tasks t
-      JOIN projects p ON t.ProjectID = p.ProjectID
-      JOIN users u ON t.CreatedBy = u.UserID
-      LEFT JOIN assigned_tasks at2 ON t.TaskID = at2.TaskID
-      LEFT JOIN users au ON at2.UserID = au.UserID
+      JOIN projects p ON t.projectid = p.projectid
+      JOIN users u ON t.createdby = u.userid
+      LEFT JOIN assigned_tasks at2 ON t.taskid = at2.taskid
+      LEFT JOIN users au ON at2.userid = au.userid
     `;
     const params = [];
 
@@ -28,7 +44,7 @@ const Task = {
       sql += `
         WHERE EXISTS (
           SELECT 1 FROM assigned_tasks atc
-          WHERE atc.TaskID = t.TaskID AND atc.UserID = ?
+          WHERE atc.taskid = t.taskid AND atc.userid = ?
         )
       `;
       params.push(userId);
@@ -37,44 +53,63 @@ const Task = {
     }
 
     if (search) {
-      sql += ` AND t.Title LIKE ?`;
+      sql += ` AND t.title ILIKE ?`;
       params.push(`%${search}%`);
     }
     if (status) {
-      sql += ` AND t.Status = ?`;
+      sql += ` AND t.status = ?`;
       params.push(status);
     }
     if (priority) {
-      sql += ` AND t.Priority = ?`;
+      sql += ` AND t.priority = ?`;
       params.push(priority);
     }
     if (projectId) {
-      sql += ` AND t.ProjectID = ?`;
+      sql += ` AND t.projectid = ?`;
       params.push(projectId);
     }
 
-    sql += ` GROUP BY t.TaskID ORDER BY t.CreatedAt DESC`;
+    // PostgreSQL: GROUP BY must list every non-aggregate SELECT column
+    sql += `
+      GROUP BY t.taskid, p.projectname, u.name
+      ORDER BY t.createdat DESC
+    `;
     const [rows] = await pool.execute(sql, params);
     return rows;
   },
 
   async findById(id) {
     const [tasks] = await pool.execute(
-      `SELECT t.*, p.ProjectName, u.Name AS CreatorName
+      `SELECT t.taskid      AS "TaskID",
+              t.projectid   AS "ProjectID",
+              t.title       AS "Title",
+              t.description AS "Description",
+              t.priority    AS "Priority",
+              t.status      AS "Status",
+              t.duedate     AS "DueDate",
+              t.createdby   AS "CreatedBy",
+              t.createdat   AS "CreatedAt",
+              t.updatedat   AS "UpdatedAt",
+              p.projectname AS "ProjectName",
+              u.name        AS "CreatorName"
        FROM tasks t
-       JOIN projects p ON t.ProjectID = p.ProjectID
-       JOIN users u ON t.CreatedBy = u.UserID
-       WHERE t.TaskID = ?`,
+       JOIN projects p ON t.projectid = p.projectid
+       JOIN users u ON t.createdby = u.userid
+       WHERE t.taskid = ?`,
       [id]
     );
     if (!tasks[0]) return null;
 
     const [assignees] = await pool.execute(
-      `SELECT u.UserID, u.Name, u.Email, r.RoleName, at2.AssignedDate
+      `SELECT u.userid      AS "UserID",
+              u.name        AS "Name",
+              u.email       AS "Email",
+              r.rolename    AS "RoleName",
+              at2.assigneddate AS "AssignedDate"
        FROM assigned_tasks at2
-       JOIN users u ON at2.UserID = u.UserID
-       JOIN roles r ON u.RoleID = r.RoleID
-       WHERE at2.TaskID = ?`,
+       JOIN users u ON at2.userid = u.userid
+       JOIN roles r ON u.roleid = r.roleid
+       WHERE at2.taskid = ?`,
       [id]
     );
 
@@ -82,70 +117,67 @@ const Task = {
   },
 
   async create({ projectId, title, description, priority, status, dueDate, createdBy }) {
-    const [result] = await pool.execute(
-      `INSERT INTO tasks (ProjectID, Title, Description, Priority, Status, DueDate, CreatedBy)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    const [rows] = await pool.execute(
+      `INSERT INTO tasks (projectid, title, description, priority, status, duedate, createdby)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       RETURNING taskid AS id`,
       [projectId, title, description || null, priority || 'Medium', status || 'To Do', dueDate || null, createdBy]
     );
-    return result.insertId;
+    return rows[0].id;
   },
 
   async update(id, { title, description, priority, status, dueDate }) {
-    const [result] = await pool.execute(
-      `UPDATE tasks SET Title = ?, Description = ?, Priority = ?, Status = ?, DueDate = ?
-       WHERE TaskID = ?`,
+    const [, meta] = await pool.execute(
+      `UPDATE tasks SET title = ?, description = ?, priority = ?, status = ?, duedate = ?
+       WHERE taskid = ?`,
       [title, description || null, priority, status, dueDate || null, id]
     );
-    return result.affectedRows;
+    return meta.rowCount;
   },
 
   async updateStatus(id, status) {
-    const [result] = await pool.execute(
-      `UPDATE tasks SET Status = ? WHERE TaskID = ?`,
+    const [, meta] = await pool.execute(
+      `UPDATE tasks SET status = ? WHERE taskid = ?`,
       [status, id]
     );
-    return result.affectedRows;
+    return meta.rowCount;
   },
 
   async delete(id) {
-    const [result] = await pool.execute(`DELETE FROM tasks WHERE TaskID = ?`, [id]);
-    return result.affectedRows;
+    const [, meta] = await pool.execute(`DELETE FROM tasks WHERE taskid = ?`, [id]);
+    return meta.rowCount;
   },
 
   async assignUser(taskId, userId, assignedBy) {
     await pool.execute(
-      `INSERT IGNORE INTO assigned_tasks (TaskID, UserID, AssignedBy) VALUES (?, ?, ?)`,
+      `INSERT INTO assigned_tasks (taskid, userid, assignedby) VALUES (?, ?, ?)
+       ON CONFLICT (taskid, userid) DO NOTHING`,
       [taskId, userId, assignedBy]
     );
   },
 
   async unassignUser(taskId, userId) {
     await pool.execute(
-      `DELETE FROM assigned_tasks WHERE TaskID = ? AND UserID = ?`,
+      `DELETE FROM assigned_tasks WHERE taskid = ? AND userid = ?`,
       [taskId, userId]
     );
   },
 
   async isAssigned(taskId, userId) {
     const [rows] = await pool.execute(
-      `SELECT 1 FROM assigned_tasks WHERE TaskID = ? AND UserID = ? LIMIT 1`,
+      `SELECT 1 FROM assigned_tasks WHERE taskid = ? AND userid = ? LIMIT 1`,
       [taskId, userId]
     );
     return rows.length > 0;
   },
 
-  /**
-   * Count how many ACTIVE (non-completed) tasks a collaborator currently has.
-   * Used to enforce the 10-active-task limit before assignment.
-   * ACTIVE = Status is NOT 'Completed'.
-   */
   async countActiveForUser(userId) {
     const [rows] = await pool.execute(
-      `SELECT COUNT(*) AS activeCount
+      `SELECT COUNT(*) AS "activeCount"
        FROM assigned_tasks at2
-       JOIN tasks t ON at2.TaskID = t.TaskID
-       WHERE at2.UserID = ?
-         AND t.Status != 'Completed'`,
+       JOIN tasks t ON at2.taskid = t.taskid
+       WHERE at2.userid = ?
+         AND t.status != 'Completed'`,
       [userId]
     );
     return parseInt(rows[0].activeCount, 10);
@@ -153,14 +185,22 @@ const Task = {
 
   async findByProject(projectId) {
     const [rows] = await pool.execute(
-      `SELECT t.*,
-              GROUP_CONCAT(DISTINCT u.Name SEPARATOR ', ') AS AssignedUsers
+      `SELECT t.taskid      AS "TaskID",
+              t.projectid   AS "ProjectID",
+              t.title       AS "Title",
+              t.description AS "Description",
+              t.priority    AS "Priority",
+              t.status      AS "Status",
+              t.duedate     AS "DueDate",
+              t.createdat   AS "CreatedAt",
+              t.updatedat   AS "UpdatedAt",
+              STRING_AGG(DISTINCT u.name, ', ') AS "AssignedUsers"
        FROM tasks t
-       LEFT JOIN assigned_tasks at2 ON t.TaskID = at2.TaskID
-       LEFT JOIN users u ON at2.UserID = u.UserID
-       WHERE t.ProjectID = ?
-       GROUP BY t.TaskID
-       ORDER BY t.Priority DESC, t.DueDate ASC`,
+       LEFT JOIN assigned_tasks at2 ON t.taskid = at2.taskid
+       LEFT JOIN users u ON at2.userid = u.userid
+       WHERE t.projectid = ?
+       GROUP BY t.taskid
+       ORDER BY t.priority DESC, t.duedate ASC`,
       [projectId]
     );
     return rows;
@@ -172,24 +212,24 @@ const Task = {
     if (roleName === 'Collaborator') {
       sql = `
         SELECT
-          COUNT(*) AS total,
-          SUM(CASE WHEN t.Status = 'Completed'   THEN 1 ELSE 0 END) AS completed,
-          SUM(CASE WHEN t.Status = 'In Progress'  THEN 1 ELSE 0 END) AS inProgress,
-          SUM(CASE WHEN t.Status = 'To Do'        THEN 1 ELSE 0 END) AS todo,
-          SUM(CASE WHEN t.DueDate < CURDATE() AND t.Status != 'Completed' THEN 1 ELSE 0 END) AS overdue
+          COUNT(*)                                                                    AS total,
+          SUM(CASE WHEN t.status = 'Completed'   THEN 1 ELSE 0 END)                AS completed,
+          SUM(CASE WHEN t.status = 'In Progress'  THEN 1 ELSE 0 END)               AS "inProgress",
+          SUM(CASE WHEN t.status = 'To Do'        THEN 1 ELSE 0 END)               AS todo,
+          SUM(CASE WHEN t.duedate < CURRENT_DATE AND t.status != 'Completed' THEN 1 ELSE 0 END) AS overdue
         FROM tasks t
-        JOIN assigned_tasks at2 ON t.TaskID = at2.TaskID
-        WHERE at2.UserID = ?
+        JOIN assigned_tasks at2 ON t.taskid = at2.taskid
+        WHERE at2.userid = ?
       `;
       params = [userId];
     } else {
       sql = `
         SELECT
-          COUNT(*) AS total,
-          SUM(CASE WHEN Status = 'Completed'   THEN 1 ELSE 0 END) AS completed,
-          SUM(CASE WHEN Status = 'In Progress'  THEN 1 ELSE 0 END) AS inProgress,
-          SUM(CASE WHEN Status = 'To Do'        THEN 1 ELSE 0 END) AS todo,
-          SUM(CASE WHEN DueDate < CURDATE() AND Status != 'Completed' THEN 1 ELSE 0 END) AS overdue
+          COUNT(*)                                                                    AS total,
+          SUM(CASE WHEN status = 'Completed'   THEN 1 ELSE 0 END)                  AS completed,
+          SUM(CASE WHEN status = 'In Progress'  THEN 1 ELSE 0 END)                 AS "inProgress",
+          SUM(CASE WHEN status = 'To Do'        THEN 1 ELSE 0 END)                 AS todo,
+          SUM(CASE WHEN duedate < CURRENT_DATE AND status != 'Completed' THEN 1 ELSE 0 END) AS overdue
         FROM tasks
       `;
       params = [];
@@ -199,59 +239,64 @@ const Task = {
     return rows[0];
   },
 
-  /**
-   * FIX: Cast limit to integer string for mysql2 compatibility.
-   * mysql2 pool.execute() rejects raw JS integers for LIMIT ?.
-   */
   async getRecent(userId, roleName, limit = 5) {
-    const safeLimit = parseInt(limit, 10);
+    // pg accepts LIMIT $N with integer params natively — no workaround needed
     let sql, params;
 
     if (roleName === 'Collaborator') {
       sql = `
-        SELECT t.TaskID, t.Title, t.Status, t.Priority, t.DueDate, p.ProjectName
+        SELECT t.taskid      AS "TaskID",
+               t.title       AS "Title",
+               t.status      AS "Status",
+               t.priority    AS "Priority",
+               t.duedate     AS "DueDate",
+               p.projectname AS "ProjectName"
         FROM tasks t
-        JOIN projects p ON t.ProjectID = p.ProjectID
-        JOIN assigned_tasks at2 ON t.TaskID = at2.TaskID
-        WHERE at2.UserID = ?
-        ORDER BY t.UpdatedAt DESC
-        LIMIT ${safeLimit}
+        JOIN projects p ON t.projectid = p.projectid
+        JOIN assigned_tasks at2 ON t.taskid = at2.taskid
+        WHERE at2.userid = ?
+        ORDER BY t.updatedat DESC
+        LIMIT ?
       `;
-      params = [userId];
+      params = [userId, limit];
     } else {
       sql = `
-        SELECT t.TaskID, t.Title, t.Status, t.Priority, t.DueDate, p.ProjectName
+        SELECT t.taskid      AS "TaskID",
+               t.title       AS "Title",
+               t.status      AS "Status",
+               t.priority    AS "Priority",
+               t.duedate     AS "DueDate",
+               p.projectname AS "ProjectName"
         FROM tasks t
-        JOIN projects p ON t.ProjectID = p.ProjectID
-        ORDER BY t.UpdatedAt DESC
-        LIMIT ${safeLimit}
+        JOIN projects p ON t.projectid = p.projectid
+        ORDER BY t.updatedat DESC
+        LIMIT ?
       `;
-      params = [];
+      params = [limit];
     }
 
     const [rows] = await pool.execute(sql, params);
     return rows;
   },
 
-  /**
-   * Get all tasks due today that have not already had a deadline notification sent.
-   * Used by the deadline notification scheduler in server.js.
-   */
   async getDueToday() {
     const [rows] = await pool.execute(
-      `SELECT t.TaskID, t.Title, t.ProjectID, p.ProjectName,
-              at2.UserID
+      `SELECT t.taskid      AS "TaskID",
+              t.title       AS "Title",
+              t.projectid   AS "ProjectID",
+              p.projectname AS "ProjectName",
+              at2.userid    AS "UserID"
        FROM tasks t
-       JOIN projects p ON t.ProjectID = p.ProjectID
-       JOIN assigned_tasks at2 ON t.TaskID = at2.TaskID
-       WHERE DATE(t.DueDate) = CURDATE()
-         AND t.Status != 'Completed'
+       JOIN projects p ON t.projectid = p.projectid
+       JOIN assigned_tasks at2 ON t.taskid = at2.taskid
+       WHERE t.duedate::date = CURRENT_DATE
+         AND t.status != 'Completed'
          AND NOT EXISTS (
            SELECT 1 FROM notifications n
-           WHERE n.TaskID  = t.TaskID
-             AND n.UserID  = at2.UserID
-             AND n.Message LIKE 'Reminder:%'
-             AND DATE(n.CreatedAt) = CURDATE()
+           WHERE n.taskid  = t.taskid
+             AND n.userid  = at2.userid
+             AND n.message LIKE 'Reminder:%'
+             AND n.createdat::date = CURRENT_DATE
          )`,
       []
     );

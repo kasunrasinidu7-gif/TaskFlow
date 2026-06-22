@@ -9,8 +9,10 @@ import api from './axios'
 
 // ── AUTH ─────────────────────────────────────────────────────────────────────
 export const authAPI = {
-  login:  (data)  => api.post('/auth/login', data),
-  getMe:  ()      => api.get('/auth/me'),
+  login:           (data) => api.post('/auth/login', data),
+  getMe:           ()     => api.get('/auth/me'),
+  forgotPassword:  (data) => api.post('/auth/forgot-password', data),
+  changeFirstPassword: (data) => api.put('/auth/change-password', data),
 }
 
 // ── DASHBOARD ────────────────────────────────────────────────────────────────

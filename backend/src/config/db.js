@@ -1,49 +1,77 @@
 /**
  * config/db.js
  * ─────────────────────────────────────────────────────────────────────────────
- * Creates a mysql2 connection POOL (not a single connection).
+ * Supabase PostgreSQL connection pool using the 'pg' (node-postgres) library.
  *
- * WHY A POOL?
- *   A single connection can only handle one query at a time.
- *   A pool maintains multiple connections and lends them out as needed,
- *   which is essential for a multi-user web app.
+ * FIX: Supabase requires SSL on ALL connections regardless of NODE_ENV.
+ * The previous version disabled SSL in development (ssl: false) which caused
+ * Supabase to silently drop the connection, resulting in a timeout error.
  *
- * WHY promise()?
- *   mysql2 has two modes: callback-based and promise-based.
- *   We use the promise-based version so we can write clean async/await code
- *   in our models instead of nested callbacks.
+ * ssl: { rejectUnauthorized: false } is the correct setting for Supabase —
+ * it enables SSL but accepts Supabase's self-signed certificate chain.
+ * This is safe because Supabase's certificate is still used for encryption;
+ * we just don't verify its CA since Supabase uses its own internal CA.
+ *
+ * CONNECTION STRING FORMAT:
+ *   DATABASE_URL=postgresql://postgres:[password]@db.[ref].supabase.co:5432/postgres
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-const mysql = require('mysql2/promise');
+const { Pool } = require('pg');
 require('dotenv').config();
 
-// Create the pool using values from the .env file
-const pool = mysql.createPool({
-  host:               process.env.DB_HOST     || 'localhost',
-  port:               parseInt(process.env.DB_PORT) || 3306,
-  user:               process.env.DB_USER     || 'root',
-  password:           process.env.DB_PASSWORD || '',
-  database:           process.env.DB_NAME     || 'taskflow_db',
-  waitForConnections: true,   // Queue queries when all connections are busy
-  connectionLimit:    10,     // Maximum 10 simultaneous connections
-  queueLimit:         0,      // Unlimited queue size (0 = no limit)
-  timezone:           '+00:00', // Store all dates as UTC
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+
+  // SSL is ALWAYS required for Supabase — in both development and production.
+  // rejectUnauthorized: false accepts Supabase's certificate chain.
+  ssl: { rejectUnauthorized: false },
+
+  max:                     10,
+  idleTimeoutMillis:       30000,
+  connectionTimeoutMillis: 10000,  // Increased from 5s to 10s for Supabase latency
 });
 
 /**
+ * Converts MySQL-style ? placeholders to PostgreSQL $1, $2, $3 ... style.
+ * @param {string} sql
+ * @returns {string}
+ */
+function convertPlaceholders(sql) {
+  let index = 0;
+  return sql.replace(/\?/g, () => `$${++index}`);
+}
+
+/**
+ * execute() — drop-in replacement for mysql2's pool.execute().
+ * Returns [rows, meta] to match the mysql2 destructuring pattern in all models.
+ */
+pool.execute = async function execute(sql, params = []) {
+  const pgSql  = convertPlaceholders(sql);
+  const result = await pool.query(pgSql, params);
+
+  const meta = {
+    rowCount:     result.rowCount,
+    affectedRows: result.rowCount,
+    insertId:     result.rows[0]?.id ?? null,
+  };
+
+  return [result.rows, meta];
+};
+
+/**
  * Test the connection on startup.
- * If the database is unreachable, this will log an error immediately
- * instead of failing silently later.
  */
 async function testConnection() {
   try {
-    const connection = await pool.getConnection();
-    console.log('✅  MySQL connected successfully');
-    connection.release(); // Always release connections back to the pool
+    const client = await pool.connect();
+    console.log('✅  Supabase PostgreSQL connected successfully');
+    client.release();
   } catch (err) {
-    console.error('❌  MySQL connection failed:', err.message);
-    process.exit(1); // Stop the server — no point running without a database
+    console.error('❌  Supabase PostgreSQL connection failed:', err.message);
+    console.error('    Check: Is DATABASE_URL set correctly in .env?');
+    console.error('    Format: postgresql://postgres:[password]@db.[ref].supabase.co:5432/postgres');
+    process.exit(1);
   }
 }
 

@@ -1,70 +1,80 @@
 /**
- * models/Notification.js
- * SQL for the notifications table.
+ * models/Notification.js — Supabase PostgreSQL version.
  *
- * FIX: findByUser used LIMIT ? with integer — mysql2 pool.execute() rejects this.
- * Solved by interpolating the integer directly into the SQL string (safe because
- * it's our own internal constant, not user input).
+ * Changes from MySQL:
+ *   - LIMIT ? now works natively with pg — no integer interpolation workaround needed
+ *   - IsRead stored as BOOLEAN — pg returns true/false directly
+ *   - INSERT ... RETURNING notificationid gives us the new ID directly
+ *   - All column names aliased with quoted casing
  */
 
 const pool = require('../config/db');
 
 const Notification = {
 
-  /**
-   * FIX: Use template literal for LIMIT instead of ? placeholder.
-   * mysql2 pool.execute() does not accept JS integers as bound parameters for LIMIT.
-   */
   async findByUser(userId, limit = 50) {
-    const safeLimit = parseInt(limit, 10);
     const [rows] = await pool.execute(
-      `SELECT n.*, t.Title AS TaskTitle
+      `SELECT n.notificationid AS "NotificationID",
+              n.userid         AS "UserID",
+              n.taskid         AS "TaskID",
+              n.message        AS "Message",
+              n.isread         AS "IsRead",
+              n.createdat      AS "CreatedAt",
+              t.title          AS "TaskTitle"
        FROM notifications n
-       LEFT JOIN tasks t ON n.TaskID = t.TaskID
-       WHERE n.UserID = ?
-       ORDER BY n.CreatedAt DESC
-       LIMIT ${safeLimit}`,
-      [userId]
+       LEFT JOIN tasks t ON n.taskid = t.taskid
+       WHERE n.userid = ?
+       ORDER BY n.createdat DESC
+       LIMIT ?`,
+      [userId, limit]
     );
     return rows;
   },
 
   async countUnread(userId) {
     const [rows] = await pool.execute(
-      `SELECT COUNT(*) AS count FROM notifications WHERE UserID = ? AND IsRead = 0`,
+      `SELECT COUNT(*) AS count FROM notifications WHERE userid = ? AND isread = false`,
       [userId]
     );
-    return rows[0].count;
+    // pg returns COUNT as a string — parse to int
+    return parseInt(rows[0].count, 10);
   },
 
   async create({ userId, taskId, message }) {
-    const [result] = await pool.execute(
-      `INSERT INTO notifications (UserID, TaskID, Message)
-       VALUES (?, ?, ?)`,
+    const [rows] = await pool.execute(
+      `INSERT INTO notifications (userid, taskid, message)
+       VALUES (?, ?, ?)
+       RETURNING notificationid AS id`,
       [userId, taskId || null, message]
     );
-    const [rows] = await pool.execute(
-      `SELECT * FROM notifications WHERE NotificationID = ?`,
-      [result.insertId]
+    const newId = rows[0].id;
+
+    // Fetch the full row so the returned shape matches what controllers expect
+    const [full] = await pool.execute(
+      `SELECT notificationid AS "NotificationID",
+              userid AS "UserID", taskid AS "TaskID",
+              message AS "Message", isread AS "IsRead", createdat AS "CreatedAt"
+       FROM notifications WHERE notificationid = ?`,
+      [newId]
     );
-    return rows[0];
+    return full[0];
   },
 
   async markRead(notificationId, userId) {
-    const [result] = await pool.execute(
-      `UPDATE notifications SET IsRead = 1
-       WHERE NotificationID = ? AND UserID = ?`,
+    const [, meta] = await pool.execute(
+      `UPDATE notifications SET isread = true
+       WHERE notificationid = ? AND userid = ?`,
       [notificationId, userId]
     );
-    return result.affectedRows;
+    return meta.rowCount;
   },
 
   async markAllRead(userId) {
-    const [result] = await pool.execute(
-      `UPDATE notifications SET IsRead = 1 WHERE UserID = ? AND IsRead = 0`,
+    const [, meta] = await pool.execute(
+      `UPDATE notifications SET isread = true WHERE userid = ? AND isread = false`,
       [userId]
     );
-    return result.affectedRows;
+    return meta.rowCount;
   },
 };
 

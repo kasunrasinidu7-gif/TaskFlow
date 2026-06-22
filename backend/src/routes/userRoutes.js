@@ -136,9 +136,6 @@ router.post(
   [
     body('Name').notEmpty().withMessage('Name is required'),
     body('Email').isEmail().withMessage('Valid email is required'),
-    body('Password')
-      .isLength({ min: 6 })
-      .withMessage('Password must be at least 6 characters'),
     body('RoleName')
       .isIn(['Admin', 'Project Manager', 'Collaborator'])
       .withMessage('Invalid role'),

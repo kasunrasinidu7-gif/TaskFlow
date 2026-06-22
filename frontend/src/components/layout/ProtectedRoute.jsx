@@ -1,33 +1,23 @@
 // src/components/layout/ProtectedRoute.jsx
-// ─────────────────────────────────────────────────────────────────────────────
-// Route guard that redirects unauthenticated users to /login.
-// Optionally checks for specific roles and shows a 403 page.
-//
-// TWO USAGE PATTERNS:
-//   1. As a layout route (wraps a group of routes with <Outlet>):
-//      <Route element={<ProtectedRoute />}>
-//        <Route path="/dashboard" element={<Dashboard />} />
-//      </Route>
-//
-//   2. As a wrapper around a single element (uses children):
-//      <ProtectedRoute roles={['Admin']}>
-//        <AdminPage />
-//      </ProtectedRoute>
-// ─────────────────────────────────────────────────────────────────────────────
+// Route guard. If user is logged in but RequirePasswordChange is true,
+// ALL routes except /change-password redirect there first.
 
 import React from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 
 export default function ProtectedRoute({ children, roles }) {
-  const { isLoggedIn, hasRole } = useAuth()
+  const { isLoggedIn, hasRole, requirePasswordChange } = useAuth()
 
-  // Not logged in → redirect to login page
   if (!isLoggedIn) {
     return <Navigate to="/login" replace />
   }
 
-  // Logged in but wrong role → show access denied
+  // Force password change — block all other pages
+  if (requirePasswordChange) {
+    return <Navigate to="/change-password" replace />
+  }
+
   if (roles && !hasRole(...roles)) {
     return (
       <div className="flex flex-col items-center justify-center h-screen" style={{ background: 'var(--bg-page)' }}>
@@ -40,6 +30,5 @@ export default function ProtectedRoute({ children, roles }) {
     )
   }
 
-  // If children are passed, render them. Otherwise render the nested <Route> via <Outlet>.
   return children ? children : <Outlet />
 }

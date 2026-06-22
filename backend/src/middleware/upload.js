@@ -1,44 +1,30 @@
 /**
  * middleware/upload.js
  * ─────────────────────────────────────────────────────────────────────────────
- * File Upload Middleware using Multer
+ * File Upload Middleware using Multer — Supabase Storage version.
  *
- * Multer handles multipart/form-data requests (the type used when uploading files).
- * It intercepts the file stream and saves it to disk before our controller runs.
+ * CHANGE FROM DISK STORAGE:
+ *   Previously used multer.diskStorage() which saved files to the local
+ *   /uploads folder on disk. This broke on Render (ephemeral filesystem).
  *
- * SECURITY MEASURES:
- *   - File size limit: configurable via MAX_FILE_SIZE_MB in .env (default 10 MB)
- *   - Allowed file types: images, PDFs, and common document formats only
- *   - Unique filenames: uses timestamp + random number to avoid overwrites
- *     and prevent path traversal attacks
+ *   Now uses multer.memoryStorage() which holds the file as a Buffer in
+ *   memory (req.file.buffer). The attachmentController then uploads that
+ *   Buffer directly to Supabase Storage.
+ *
+ *   Files never touch the server's local disk.
+ *
+ * SECURITY:
+ *   - File size limit enforced by Multer before the buffer is even read
+ *   - MIME type whitelist unchanged
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
 const multer = require('multer');
-const path   = require('path');
-const fs     = require('fs');
 
-// Ensure the uploads directory exists
-const uploadDir = path.join(__dirname, '../../', process.env.UPLOAD_DIR || 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+// memoryStorage holds the file in memory as req.file.buffer
+// No temp files written to disk — clean and portable
+const storage = multer.memoryStorage();
 
-// Configure where and how files are stored
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    // Create a unique filename: timestamp-random.extension
-    // This prevents two users from overwriting each other's files
-    const unique   = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    const ext      = path.extname(file.originalname).toLowerCase();
-    cb(null, `${unique}${ext}`);
-  },
-});
-
-// Only allow safe file types (whitelist approach)
 const ALLOWED_MIME_TYPES = [
   'image/jpeg', 'image/png', 'image/gif', 'image/webp',
   'application/pdf',
@@ -52,18 +38,18 @@ const ALLOWED_MIME_TYPES = [
 
 function fileFilter(req, file, cb) {
   if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
-    cb(null, true);  // Accept the file
+    cb(null, true);
   } else {
     cb(new Error(`File type not allowed: ${file.mimetype}`), false);
   }
 }
 
-const maxSizeMB  = parseInt(process.env.MAX_FILE_SIZE_MB) || 10;
+const maxSizeMB = parseInt(process.env.MAX_FILE_SIZE_MB) || 10;
 
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: maxSizeMB * 1024 * 1024 }, // Convert MB to bytes
+  limits: { fileSize: maxSizeMB * 1024 * 1024 },
 });
 
 module.exports = upload;

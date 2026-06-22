@@ -5,7 +5,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { authAPI } from '../../api/services'
 import Button from '../../components/ui/Button'
@@ -161,6 +161,15 @@ export default function LoginPage() {
             <Button type="submit" className="w-full mt-2" size="lg" loading={loading}>
               Sign in
             </Button>
+
+            <div className="text-center mt-4">
+              <Link
+                to="/forgot-password"
+                className="text-xs text-primary hover:underline font-medium"
+              >
+                Forgot your password?
+              </Link>
+            </div>
           </form>
 
           <p className="text-center text-xs text-[var(--text-light)] mt-8">

@@ -1,19 +1,17 @@
 /**
  * models/User.js
  * ─────────────────────────────────────────────────────────────────────────────
- * User Model
+ * User Model — Supabase PostgreSQL version.
  *
- * This file contains ALL database queries related to users.
- * Controllers call these functions — they never write SQL directly.
- *
- * IMPORTANT: Every query uses ? placeholders (parameterized queries).
- * mysql2 automatically escapes these values, which prevents SQL Injection.
- *
- * BAD (vulnerable to SQL injection):
- *   `SELECT * FROM users WHERE Email = '${email}'`
- *
- * GOOD (safe, parameterized):
- *   `SELECT * FROM users WHERE Email = ?`, [email]
+ * KEY DIFFERENCES FROM MySQL VERSION:
+ *   - PostgreSQL returns column names in LOWERCASE — so rows[0].userid
+ *     not rows[0].UserID. We alias every column back to the original casing
+ *     using AS "UserID" so controllers and JWT payloads stay unchanged.
+ *   - INSERT ... RETURNING id replaces result.insertId
+ *   - ON CONFLICT DO NOTHING replaces INSERT IGNORE
+ *   - ILIKE used for case-insensitive search (replaces LIKE)
+ *   - RequirePasswordChange stored as BOOLEAN (true/false) in PostgreSQL
+ *     instead of TINYINT(1) — returned as JS boolean directly, no coercion needed
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -21,182 +19,166 @@ const pool = require('../config/db');
 
 const User = {
 
-  /**
-   * Find a user by their email address.
-   * Used during login to look up the user before checking their password.
-   */
   async findByEmail(email) {
     const [rows] = await pool.execute(
-      `SELECT u.*, r.RoleName
+      `SELECT u.userid    AS "UserID",
+              u.name      AS "Name",
+              u.email     AS "Email",
+              u.passwordhash AS "PasswordHash",
+              u.roleid    AS "RoleID",
+              u.isactive  AS "IsActive",
+              u.requirepasswordchange AS "RequirePasswordChange",
+              u.passwordchangedat    AS "PasswordChangedAt",
+              u.createdat AS "CreatedAt",
+              r.rolename  AS "RoleName"
        FROM users u
-       JOIN roles r ON u.RoleID = r.RoleID
-       WHERE u.Email = ? AND u.IsActive = 1
+       JOIN roles r ON u.roleid = r.roleid
+       WHERE u.email = ? AND u.isactive = true
        LIMIT 1`,
       [email]
     );
     return rows[0] || null;
   },
 
-  /**
-   * Find a user by their ID.
-   * Used to fetch the current user's profile.
-   */
   async findById(id) {
     const [rows] = await pool.execute(
-      `SELECT u.UserID, u.Name, u.Email, u.RoleID, u.IsActive, u.CreatedAt,
-              r.RoleName
+      `SELECT u.userid    AS "UserID",
+              u.name      AS "Name",
+              u.email     AS "Email",
+              u.roleid    AS "RoleID",
+              u.isactive  AS "IsActive",
+              u.requirepasswordchange AS "RequirePasswordChange",
+              u.createdat AS "CreatedAt",
+              r.rolename  AS "RoleName"
        FROM users u
-       JOIN roles r ON u.RoleID = r.RoleID
-       WHERE u.UserID = ?
+       JOIN roles r ON u.roleid = r.roleid
+       WHERE u.userid = ?
        LIMIT 1`,
       [id]
     );
     return rows[0] || null;
   },
 
-  /**
-   * Get all users with optional search and role filter.
-   * Admin-only function.
-   *
-   * SEARCH: Matches name OR email containing the search term.
-   * FILTER: Exact match on role name.
-   */
   async findAll({ search = '', role = '' } = {}) {
-    // Build the query dynamically based on which filters are provided
     let sql = `
-      SELECT u.UserID, u.Name, u.Email, u.RoleID, u.IsActive, u.CreatedAt,
-             r.RoleName
+      SELECT u.userid    AS "UserID",
+             u.name      AS "Name",
+             u.email     AS "Email",
+             u.roleid    AS "RoleID",
+             u.isactive  AS "IsActive",
+             u.createdat AS "CreatedAt",
+             r.rolename  AS "RoleName"
       FROM users u
-      JOIN roles r ON u.RoleID = r.RoleID
+      JOIN roles r ON u.roleid = r.roleid
       WHERE 1=1
     `;
     const params = [];
 
     if (search) {
-      sql += ` AND (u.Name LIKE ? OR u.Email LIKE ?)`;
+      sql += ` AND (u.name ILIKE ? OR u.email ILIKE ?)`;
       params.push(`%${search}%`, `%${search}%`);
     }
     if (role) {
-      sql += ` AND r.RoleName = ?`;
+      sql += ` AND r.rolename = ?`;
       params.push(role);
     }
 
-    sql += ` ORDER BY u.CreatedAt DESC`;
+    sql += ` ORDER BY u.createdat DESC`;
     const [rows] = await pool.execute(sql, params);
     return rows;
   },
 
-  /**
-   * Create a new user.
-   * The password must already be hashed before calling this function.
-   */
-  async create({ name, email, passwordHash, roleId }) {
-    const [result] = await pool.execute(
-      `INSERT INTO users (Name, Email, PasswordHash, RoleID)
-       VALUES (?, ?, ?, ?)`,
-      [name, email, passwordHash, roleId]
+  async create({ name, email, passwordHash, roleId, requirePasswordChange = false }) {
+    const [rows] = await pool.execute(
+      `INSERT INTO users (name, email, passwordhash, roleid, requirepasswordchange)
+       VALUES (?, ?, ?, ?, ?)
+       RETURNING userid AS id`,
+      [name, email, passwordHash, roleId, requirePasswordChange]
     );
-    return result.insertId; // Returns the new user's ID
+    return rows[0].id;
   },
 
-  /**
-   * Update a user's name, email, and/or role.
-   */
   async update(id, { name, email, roleId }) {
-    const [result] = await pool.execute(
-      `UPDATE users SET Name = ?, Email = ?, RoleID = ? WHERE UserID = ?`,
+    const [, meta] = await pool.execute(
+      `UPDATE users SET name = ?, email = ?, roleid = ? WHERE userid = ?`,
       [name, email, roleId, id]
     );
-    return result.affectedRows;
+    return meta.rowCount;
   },
 
-  /**
-   * Soft-deactivate a user (sets IsActive = 0).
-   * We never hard-delete users because that would orphan their comments, tasks, etc.
-   */
   async deactivate(id) {
-    const [result] = await pool.execute(
-      `UPDATE users SET IsActive = 0 WHERE UserID = ?`,
+    const [, meta] = await pool.execute(
+      `UPDATE users SET isactive = false WHERE userid = ?`,
       [id]
     );
-    return result.affectedRows;
+    return meta.rowCount;
   },
 
-  /**
-   * Update a user's password hash.
-   * Called from the change-password flow (profile page).
-   */
   async updatePassword(id, newPasswordHash) {
-    const [result] = await pool.execute(
-      `UPDATE users SET PasswordHash = ? WHERE UserID = ?`,
+    const [, meta] = await pool.execute(
+      `UPDATE users SET passwordhash = ? WHERE userid = ?`,
       [newPasswordHash, id]
     );
-    return result.affectedRows;
+    return meta.rowCount;
   },
 
-  /**
-   * Get all roles — used to populate role dropdowns.
-   */
   async getRoles() {
-    const [rows] = await pool.execute(`SELECT * FROM roles ORDER BY RoleID`);
+    const [rows] = await pool.execute(
+      `SELECT roleid AS "RoleID", rolename AS "RoleName" FROM roles ORDER BY roleid`
+    );
     return rows;
   },
 
-  /**
-   * Find a role by name.
-   */
   async findRoleByName(name) {
     const [rows] = await pool.execute(
-      `SELECT * FROM roles WHERE RoleName = ? LIMIT 1`,
+      `SELECT roleid AS "RoleID", rolename AS "RoleName"
+       FROM roles WHERE rolename = ? LIMIT 1`,
       [name]
     );
     return rows[0] || null;
   },
 
-  /**
-   * Update own profile (name and email only).
-   * Collaborators use this — they cannot change their role.
-   */
   async updateProfile(id, { name, email }) {
-    const [result] = await pool.execute(
-      `UPDATE users SET Name = ?, Email = ? WHERE UserID = ?`,
+    const [, meta] = await pool.execute(
+      `UPDATE users SET name = ?, email = ? WHERE userid = ?`,
       [name, email, id]
     );
-    return result.affectedRows;
+    return meta.rowCount;
   },
 
-  /**
-   * Get all active users that can be assigned to tasks.
-   * Used by Project Managers when assigning tasks.
-   * Optionally filter to members of a specific project.
-   */
-  /**
-   * Get users available for task assignment.
-   *
-   * FIX: Previously filtered ONLY by project_members, which meant if a project
-   * had no members added yet, zero users appeared in the assign modal.
-   *
-   * New behaviour:
-   *   - Returns ALL active users (Admin + PM can assign anyone).
-   *   - Excludes Admins from the list (Admins don't do task work, only manage).
-   *   - If projectId is given, project members appear first for convenience.
-   *   - Also includes the active task count so the frontend can show a warning.
-   */
-  async findAssignable(projectId = null) {
-    let sql = `
-      SELECT u.UserID, u.Name, u.Email, r.RoleName,
-             (SELECT COUNT(*) FROM assigned_tasks at2
-              JOIN tasks t ON at2.TaskID = t.TaskID
-              WHERE at2.UserID = u.UserID AND t.Status != 'Completed') AS activeTasks
-      FROM users u
-      JOIN roles r ON u.RoleID = r.RoleID
-      WHERE u.IsActive = 1
-        AND r.RoleName != 'Admin'
-    `;
-    const params = [];
+  async setTemporaryPassword(id, passwordHash) {
+    await pool.execute(
+      `UPDATE users
+       SET passwordhash = ?, requirepasswordchange = true, passwordchangedat = NULL
+       WHERE userid = ?`,
+      [passwordHash, id]
+    );
+  },
 
-    sql += ` ORDER BY u.Name ASC`;
-    const [rows] = await pool.execute(sql, params);
+  async completePasswordChange(id, newPasswordHash) {
+    await pool.execute(
+      `UPDATE users
+       SET passwordhash = ?, requirepasswordchange = false, passwordchangedat = NOW()
+       WHERE userid = ?`,
+      [newPasswordHash, id]
+    );
+  },
+
+  async findAssignable(projectId = null) {
+    const [rows] = await pool.execute(
+      `SELECT u.userid   AS "UserID",
+              u.name     AS "Name",
+              u.email    AS "Email",
+              r.rolename AS "RoleName",
+              (SELECT COUNT(*) FROM assigned_tasks at2
+               JOIN tasks t ON at2.taskid = t.taskid
+               WHERE at2.userid = u.userid AND t.status != 'Completed') AS "activeTasks"
+       FROM users u
+       JOIN roles r ON u.roleid = r.roleid
+       WHERE u.isactive = true
+         AND r.rolename != 'Admin'
+       ORDER BY u.name ASC`
+    );
     return rows;
   },
 };

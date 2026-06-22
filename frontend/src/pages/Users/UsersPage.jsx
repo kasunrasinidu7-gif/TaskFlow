@@ -13,7 +13,7 @@ import EmptyState from '../../components/ui/EmptyState'
 import { useToast } from '../../components/ui/Toast'
 import { getInitials, getErrorMessage } from '../../utils/helpers'
 
-const EMPTY_FORM = { Name: '', Email: '', Password: '', RoleName: 'Collaborator' }
+const EMPTY_FORM = { Name: '', Email: '', RoleName: 'Collaborator' }
 
 export default function UsersPage() {
   const toast = useToast()
@@ -49,7 +49,7 @@ export default function UsersPage() {
     setModal({ open: true, mode: 'create', user: null })
   }
   function openEdit(u) {
-    setForm({ Name: u.Name, Email: u.Email, Password: '', RoleName: u.RoleName })
+    setForm({ Name: u.Name, Email: u.Email, RoleName: u.RoleName })
     setFormErr({})
     setModal({ open: true, mode: 'edit', user: u })
   }
@@ -59,8 +59,6 @@ export default function UsersPage() {
     const e = {}
     if (!form.Name.trim())  e.Name  = 'Name is required'
     if (!form.Email.trim()) e.Email = 'Email is required'
-    if (modal.mode === 'create' && form.Password.length < 6)
-      e.Password = 'Minimum 6 characters'
     return e
   }
 
@@ -178,9 +176,15 @@ export default function UsersPage() {
         <div className="flex flex-col gap-4">
           <Input label="Full Name" value={form.Name} onChange={e => setForm(p => ({ ...p, Name: e.target.value }))} error={formErr.Name} />
           <Input label="Email" type="email" value={form.Email} onChange={e => setForm(p => ({ ...p, Email: e.target.value }))} error={formErr.Email} />
+
+{/* edited           */}
+
           {modal.mode === 'create' && (
-            <Input label="Password" type="password" value={form.Password} onChange={e => setForm(p => ({ ...p, Password: e.target.value }))} error={formErr.Password} />
-          )}
+  <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-xs text-blue-700">
+    🔐 A secure temporary password will be automatically generated and emailed to the user. They will be required to change it on first login.
+  </div>
+)}
+
           <Input label="Role" as="select" value={form.RoleName} onChange={e => setForm(p => ({ ...p, RoleName: e.target.value }))}>
             <option value="Admin">Admin</option>
             <option value="Project Manager">Project Manager</option>

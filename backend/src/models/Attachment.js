@@ -1,64 +1,58 @@
 /**
- * models/Attachment.js
- * ─────────────────────────────────────────────────────────────────────────────
- * Attachment Model — SQL for the attachments table.
- * ─────────────────────────────────────────────────────────────────────────────
+ * models/Attachment.js — Supabase PostgreSQL version.
  */
 
 const pool = require('../config/db');
 
 const Attachment = {
 
-  /**
-   * Get all attachments for a task.
-   * Includes the uploader's name.
-   */
   async findByTask(taskId) {
     const [rows] = await pool.execute(
-      `SELECT a.*, u.Name AS UploaderName
+      `SELECT a.attachmentid AS "AttachmentID",
+              a.taskid       AS "TaskID",
+              a.userid       AS "UserID",
+              a.filename     AS "FileName",
+              a.filepath     AS "FilePath",
+              a.filetype     AS "FileType",
+              a.uploadedat   AS "UploadedAt",
+              u.name         AS "UploaderName"
        FROM attachments a
-       JOIN users u ON a.UserID = u.UserID
-       WHERE a.TaskID = ?
-       ORDER BY a.UploadedAt DESC`,
+       JOIN users u ON a.userid = u.userid
+       WHERE a.taskid = ?
+       ORDER BY a.uploadedat DESC`,
       [taskId]
     );
     return rows;
   },
 
-  /**
-   * Save a new attachment record after the file has been uploaded to disk.
-   */
   async create({ taskId, userId, fileName, filePath, fileType }) {
-    const [result] = await pool.execute(
-      `INSERT INTO attachments (TaskID, UserID, FileName, FilePath, FileType)
-       VALUES (?, ?, ?, ?, ?)`,
+    const [rows] = await pool.execute(
+      `INSERT INTO attachments (taskid, userid, filename, filepath, filetype)
+       VALUES (?, ?, ?, ?, ?)
+       RETURNING attachmentid AS id`,
       [taskId, userId, fileName, filePath, fileType || null]
     );
-    return result.insertId;
+    return rows[0].id;
   },
 
-  /**
-   * Find a single attachment by ID.
-   * Used to check ownership and get the file path before deletion.
-   */
   async findById(id) {
     const [rows] = await pool.execute(
-      `SELECT * FROM attachments WHERE AttachmentID = ? LIMIT 1`,
+      `SELECT attachmentid AS "AttachmentID",
+              taskid AS "TaskID", userid AS "UserID",
+              filename AS "FileName", filepath AS "FilePath",
+              filetype AS "FileType", uploadedat AS "UploadedAt"
+       FROM attachments WHERE attachmentid = ? LIMIT 1`,
       [id]
     );
     return rows[0] || null;
   },
 
-  /**
-   * Delete an attachment record.
-   * The controller is responsible for also deleting the file from disk.
-   */
   async delete(id) {
-    const [result] = await pool.execute(
-      `DELETE FROM attachments WHERE AttachmentID = ?`,
+    const [, meta] = await pool.execute(
+      `DELETE FROM attachments WHERE attachmentid = ?`,
       [id]
     );
-    return result.affectedRows;
+    return meta.rowCount;
   },
 };
 

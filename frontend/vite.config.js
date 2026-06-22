@@ -7,17 +7,17 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'https://taskflow100002.onrender.com/',
         changeOrigin: true,
       },
       // Socket.io requires its own proxy entry so WebSocket upgrades work
       '/socket.io': {
-        target: 'http://localhost:5000',
+        target: 'https://taskflow100002.onrender.com/',
         changeOrigin: true,
         ws: true,   // Enable WebSocket proxying
       },
       '/uploads': {
-        target: 'http://localhost:5000',
+        target: 'https://taskflow100002.onrender.com/',
         changeOrigin: true,
       },
     },

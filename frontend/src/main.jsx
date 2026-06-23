@@ -1,4 +1,5 @@
 // src/main.jsx
+// src/main.jsx
 // ─────────────────────────────────────────────────────────────────────────────
 // React app entry point.
 // Wraps the App in StrictMode (catches potential issues during development)

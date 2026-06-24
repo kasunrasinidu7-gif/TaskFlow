@@ -32,10 +32,10 @@ export function useNotifications() {
     if (!token) return
 
     // Connect to the backend Socket.io server with the JWT in auth
-    const s = io('/', {
-      auth: { token: `Bearer ${token}` },
-      path: '/socket.io',
-    })
+    const s = io(import.meta.env.VITE_API_URL.replace('/api', ''), {
+  auth: { token: `Bearer ${token}` },
+  path: '/socket.io',
+})
 
     s.on('connect', () => console.log('Socket connected'))
     s.on('connect_error', (err) => console.error('Socket error:', err.message))

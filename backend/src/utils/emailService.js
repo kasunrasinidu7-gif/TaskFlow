@@ -1,63 +1,32 @@
 /**
  * utils/emailService.js
- * ─────────────────────────────────────────────────────────────────────────────
- * Nodemailer email service for TaskFlow.
- * Handles all outbound email: welcome invitations and password resets.
+ * Resend email service for TaskFlow.
  *
- * Environment variables required in .env:
- *   EMAIL_HOST       — SMTP hostname (e.g. smtp.gmail.com)
- *   EMAIL_PORT       — SMTP port (587 for TLS, 465 for SSL)
- *   EMAIL_SECURE     — true for port 465, false for 587
- *   EMAIL_USER       — SMTP username / email address
- *   EMAIL_PASS       — SMTP password or app password
- *   EMAIL_FROM       — From display name and address
- *   CLIENT_URL       — Frontend URL for login link
- * ─────────────────────────────────────────────────────────────────────────────
+ * Environment variables required:
+ *   RESEND_API_KEY  — API key from resend.com
+ *   EMAIL_FROM      — From address (e.g. TaskFlow <noreply@yourdomain.com>)
+ *   CLIENT_URL      — Frontend URL for login link
  */
 
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
-// Create the transporter once and reuse it for all emails.
-// verifyConnection() is called at server start to fail fast if credentials are wrong.
-const transporter = nodemailer.createTransport({
-  host:   process.env.EMAIL_HOST,
-  port:   parseInt(process.env.EMAIL_PORT) || 587,
-  secure: process.env.EMAIL_SECURE === 'true',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-/**
- * Verify the SMTP connection on startup.
- * Logs a warning if it fails but does NOT crash the server —
- * the rest of the app works even if email is misconfigured.
- */
 async function verifyConnection() {
   try {
-    await transporter.verify();
-    console.log('✅  Email service connected');
+    // Resend has no verify() — just check the key exists
+    if (!process.env.RESEND_API_KEY) throw new Error('RESEND_API_KEY is not set');
+    console.log('✅  Email service ready (Resend)');
   } catch (err) {
-    console.warn('⚠️   Email service not connected:', err.message);
+    console.warn('⚠️   Email service not configured:', err.message);
   }
 }
 
-/**
- * Send a welcome invitation email to a newly created user.
- * Called by userController.create() after creating the account.
- *
- * @param {object} params
- * @param {string} params.name            — Recipient's full name
- * @param {string} params.email           — Recipient's email address
- * @param {string} params.roleName        — Their assigned role
- * @param {string} params.temporaryPassword — The plain-text temp password (before hashing)
- */
 async function sendWelcomeEmail({ name, email, roleName, temporaryPassword }) {
   const loginUrl = `${process.env.CLIENT_URL}/login`;
 
-  await transporter.sendMail({
-    from:    process.env.EMAIL_FROM || `"TaskFlow" <${process.env.EMAIL_USER}>`,
+  await resend.emails.send({
+    from:    process.env.EMAIL_FROM || 'TaskFlow <onboarding@resend.dev>',
     to:      email,
     subject: 'Welcome to TaskFlow',
     html: `
@@ -89,7 +58,6 @@ async function sendWelcomeEmail({ name, email, roleName, temporaryPassword }) {
           <div class="logo">Task<span>Flow</span></div>
           <h2>Welcome to TaskFlow, ${name}!</h2>
           <p>Your account has been created. Below are your login details.</p>
-
           <div class="info-box">
             <div class="info-row">
               <span class="info-label">Name</span>
@@ -104,19 +72,15 @@ async function sendWelcomeEmail({ name, email, roleName, temporaryPassword }) {
               <span class="info-value">${roleName}</span>
             </div>
           </div>
-
           <p>Your temporary password:</p>
           <div class="password-box">
             <div class="password-text">${temporaryPassword}</div>
           </div>
-
           <a href="${loginUrl}" class="btn">Log in to TaskFlow</a>
-
           <div class="warning">
             ⚠️ You will be required to set a new password immediately after your first login.
             Do not share this temporary password with anyone.
           </div>
-
           <div class="footer">
             This email was sent by TaskFlow &mdash; INTE 21323 Project.<br />
             If you did not expect this email, please contact your administrator.
@@ -128,20 +92,11 @@ async function sendWelcomeEmail({ name, email, roleName, temporaryPassword }) {
   });
 }
 
-/**
- * Send a password reset email with a new temporary password.
- * Called by authController.forgotPassword().
- *
- * @param {object} params
- * @param {string} params.name            — Recipient's full name
- * @param {string} params.email           — Recipient's email address
- * @param {string} params.temporaryPassword — The new plain-text temp password
- */
 async function sendPasswordResetEmail({ name, email, temporaryPassword }) {
   const loginUrl = `${process.env.CLIENT_URL}/login`;
 
-  await transporter.sendMail({
-    from:    process.env.EMAIL_FROM || `"TaskFlow" <${process.env.EMAIL_USER}>`,
+  await resend.emails.send({
+    from:    process.env.EMAIL_FROM || 'TaskFlow <onboarding@resend.dev>',
     to:      email,
     subject: 'TaskFlow Password Reset',
     html: `
@@ -170,12 +125,10 @@ async function sendPasswordResetEmail({ name, email, temporaryPassword }) {
           <div class="logo">Task<span>Flow</span></div>
           <h2>Password Reset Request</h2>
           <p>Hi ${name}, a password reset was requested for your TaskFlow account.</p>
-
           <p>Your new temporary password:</p>
           <div class="password-box">
             <div class="password-text">${temporaryPassword}</div>
           </div>
-
           <div class="steps">
             <ol>
               <li>Click the button below to go to the login page</li>
@@ -183,14 +136,11 @@ async function sendPasswordResetEmail({ name, email, temporaryPassword }) {
               <li>You will be asked to set a new permanent password immediately</li>
             </ol>
           </div>
-
           <a href="${loginUrl}" class="btn">Log in to TaskFlow</a>
-
           <div class="warning">
             If you did not request a password reset, contact your administrator immediately.
             Do not share this temporary password with anyone.
           </div>
-
           <div class="footer">
             This email was sent by TaskFlow &mdash; INTE 21323 Project.
           </div>

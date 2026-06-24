@@ -3,15 +3,10 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * User Model — Supabase PostgreSQL version.
  *
- * KEY DIFFERENCES FROM MySQL VERSION:
- *   - PostgreSQL returns column names in LOWERCASE — so rows[0].userid
- *     not rows[0].UserID. We alias every column back to the original casing
- *     using AS "UserID" so controllers and JWT payloads stay unchanged.
- *   - INSERT ... RETURNING id replaces result.insertId
- *   - ON CONFLICT DO NOTHING replaces INSERT IGNORE
- *   - ILIKE used for case-insensitive search (replaces LIKE)
- *   - RequirePasswordChange stored as BOOLEAN (true/false) in PostgreSQL
- *     instead of TINYINT(1) — returned as JS boolean directly, no coercion needed
+ * FIX: findAssignable() now correctly filters by projectId when provided.
+ * Previously the projectId parameter was accepted but never used in the SQL,
+ * so the assign modal always showed every active user regardless of project.
+ * Fix: added a JOIN to project_members and a WHERE clause when projectId is set.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -164,21 +159,64 @@ const User = {
     );
   },
 
+  /**
+   * findAssignable(projectId)
+   *
+   * FIX: projectId was previously accepted but never used in the SQL query,
+   * so the assign modal showed ALL active users regardless of which project
+   * the task belonged to.
+   *
+   * Now when projectId is provided, only users who are members of that
+   * specific project are returned (via JOIN to project_members).
+   * When projectId is null/undefined, all active non-Admin users are returned
+   * (used as a fallback, though the UI always passes a projectId).
+   */
   async findAssignable(projectId = null) {
-    const [rows] = await pool.execute(
-      `SELECT u.userid   AS "UserID",
-              u.name     AS "Name",
-              u.email    AS "Email",
-              r.rolename AS "RoleName",
-              (SELECT COUNT(*) FROM assigned_tasks at2
-               JOIN tasks t ON at2.taskid = t.taskid
-               WHERE at2.userid = u.userid AND t.status != 'Completed') AS "activeTasks"
-       FROM users u
-       JOIN roles r ON u.roleid = r.roleid
-       WHERE u.isactive = true
-         AND r.rolename != 'Admin'
-       ORDER BY u.name ASC`
-    );
+    let sql, params;
+
+    if (projectId) {
+      // Filter to members of the specific project only
+      sql = `
+        SELECT u.userid   AS "UserID",
+               u.name     AS "Name",
+               u.email    AS "Email",
+               r.rolename AS "RoleName",
+               (SELECT COUNT(*)
+                FROM assigned_tasks at2
+                JOIN tasks t ON at2.taskid = t.taskid
+                WHERE at2.userid = u.userid
+                  AND t.status != 'Completed') AS "activeTasks"
+        FROM users u
+        JOIN roles r ON u.roleid = r.roleid
+        JOIN project_members pm ON pm.userid = u.userid
+        WHERE u.isactive = true
+          AND r.rolename != 'Admin'
+          AND pm.projectid = ?
+        ORDER BY u.name ASC
+      `;
+      params = [projectId];
+    } else {
+      // No projectId — return all active non-Admin users
+      sql = `
+        SELECT u.userid   AS "UserID",
+               u.name     AS "Name",
+               u.email    AS "Email",
+               r.rolename AS "RoleName",
+               (SELECT COUNT(*)
+                FROM assigned_tasks at2
+                JOIN tasks t ON at2.taskid = t.taskid
+                WHERE at2.userid = u.userid
+                  AND t.status != 'Completed') AS "activeTasks"
+        FROM users u
+        JOIN roles r ON u.roleid = r.roleid
+        WHERE u.isactive = true
+          AND r.rolename != 'Admin'
+        ORDER BY u.name ASC
+      `;
+      params = [];
+    }
+
+    const [rows] = await pool.execute(sql, params);
     return rows;
   },
 };

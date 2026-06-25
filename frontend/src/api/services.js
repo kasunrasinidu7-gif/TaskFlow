@@ -2,7 +2,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // All API service functions — one per backend endpoint.
 // Components call these functions instead of using axios directly,
-// which keeps all API logic in one place
+// which keeps all API logic in one place.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import api from './axios'
@@ -52,6 +52,7 @@ export const taskAPI = {
   delete:       (id)         => api.delete(`/tasks/${id}`),
   assign:       (id, data)   => api.post(`/tasks/${id}/assign`, data),
   getByProject: (projectId)  => api.get(`/tasks/by-project/${projectId}`),
+  getMyTasks:   ()           => api.get(`/tasks/my`),
 }
 
 // ── COMMENTS ─────────────────────────────────────────────────────────────────

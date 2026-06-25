@@ -14,6 +14,8 @@ export function useNotifications() {
   const [notifications, setNotifications] = useState([])
   const [unreadCount,   setUnreadCount]   = useState(0)
   const [socket,        setSocket]        = useState(null)
+  const [toasts,        setToasts]        = useState([])
+
 
   // ── Fetch notifications from the REST API ─────────────────────────────────
   const fetchNotifications = useCallback(async () => {
@@ -42,9 +44,10 @@ export function useNotifications() {
 
     // When a new notification arrives in real time, prepend it to the list
     s.on('new_notification', (notif) => {
-      setNotifications(prev => [notif, ...prev])
-      setUnreadCount(prev => prev + 1)
-    })
+  setNotifications(prev => [notif, ...prev])
+  setUnreadCount(prev => prev + 1)
+  setToasts(prev => [...prev, { ...notif, toastId: Date.now() }])
+})
 
     setSocket(s)
 
@@ -68,6 +71,10 @@ export function useNotifications() {
     }
   }
 
+  function dismissToast(toastId) {
+  setToasts(prev => prev.filter(t => t.toastId !== toastId))
+}
+
   // ── Mark all as read ──────────────────────────────────────────────────────
   async function markAllRead() {
     try {
@@ -79,5 +86,5 @@ export function useNotifications() {
     }
   }
 
-  return { notifications, unreadCount, markRead, markAllRead, socket, fetchNotifications }
+  return { notifications, unreadCount, markRead, markAllRead, socket, fetchNotifications, toasts, dismissToast }
 }

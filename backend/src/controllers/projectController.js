@@ -7,7 +7,11 @@
 
 const Project = require('../models/Project');
 const User    = require('../models/User');
+
+const Notification = require('../models/Notification');
+
 const { sendSuccess, sendError } = require('../utils/response');
+
 
 const projectController = {
 
@@ -106,18 +110,35 @@ const projectController = {
    * Body: { UserID }
    */
   async addMember(req, res) {
-    try {
-      const { UserID } = req.body;
-      const user = await User.findById(UserID);
-      if (!user) return sendError(res, 'User not found', 404);
+  try {
+    const { UserID } = req.body;
+    const user = await User.findById(UserID);
+    if (!user) return sendError(res, 'User not found', 404);
 
-      await Project.addMember(req.params.id, UserID);
-      return sendSuccess(res, null, 'Member added successfully');
-    } catch (err) {
-      console.error('addMember error:', err);
-      return sendError(res, 'Failed to add member', 500);
+    const project = await Project.findById(req.params.id);
+    if (!project) return sendError(res, 'Project not found', 404);
+
+    await Project.addMember(req.params.id, UserID);
+
+    // Send notification to the added user
+    const notif = await Notification.create({
+      userId:  UserID,
+      taskId:  null,
+      message: `You have been added to the project "${project.ProjectName}".`,
+    });
+
+    // Push real-time notification if the user is online
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user_${UserID}`).emit('new_notification', notif);
     }
-  },
+
+    return sendSuccess(res, null, 'Member added successfully');
+  } catch (err) {
+    console.error('addMember error:', err);
+    return sendError(res, 'Failed to add member', 500);
+  }
+},
 
   /**
    * DELETE /api/projects/:id/members/:userId

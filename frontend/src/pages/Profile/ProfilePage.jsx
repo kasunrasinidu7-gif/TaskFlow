@@ -2,9 +2,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Profile Page — available to ALL roles.
 //
-// FIX: EyeToggle was previously defined INSIDE ProfilePage's component body,
-// causing React to remount password inputs on every keystroke (focus lost).
-// Fix: moved EyeToggle OUTSIDE the component and pass showPwd/setShowPwd as props.
+// FIX 1 (cursor loss): EyeToggle moved OUTSIDE the component body so React
+//   does not remount password inputs on every keystroke.
+//
+// FIX 2 (email validation): validateProfile() now uses a proper RFC-style
+//   email regex that rejects inputs like "a@b" or "test@" or "plaintext".
+//   Error message is also shown correctly under the Email field.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState } from 'react'
@@ -21,6 +24,10 @@ const roleBadge = {
   'Project Manager': 'bg-blue-100 text-blue-700',
   'Collaborator':    'bg-green-100 text-green-700',
 }
+
+// ── Proper email regex ────────────────────────────────────────────────────────
+// Validates: local@domain.tld — rejects "a@b", "test@", "plaintext", etc.
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
 // ── Card wrapper ──────────────────────────────────────────────────────────────
 function Card({ title, subtitle, children }) {
@@ -76,21 +83,25 @@ export default function ProfilePage() {
   const [showPwd,    setShowPwd]    = useState({ current: false, new: false, confirm: false })
 
   // ── Validate profile fields ───────────────────────────────────────────────
+  // FIX: uses EMAIL_REGEX for proper format validation, not just empty check
   function validateProfile() {
     const e = {}
-    if (!profileForm.Name.trim())                          e.Name  = 'Name is required'
-    if (!profileForm.Email.trim())                         e.Email = 'Email is required'
-    else if (!/\S+@\S+\.\S+/.test(profileForm.Email))     e.Email = 'Enter a valid email'
+    if (!profileForm.Name.trim())
+      e.Name = 'Name is required'
+    if (!profileForm.Email.trim())
+      e.Email = 'Email is required'
+    else if (!EMAIL_REGEX.test(profileForm.Email.trim()))
+      e.Email = 'Enter a valid email address (e.g. name@example.com)'
     return e
   }
 
   // ── Validate password fields ──────────────────────────────────────────────
   function validatePwd() {
     const e = {}
-    if (!pwdForm.CurrentPassword)                            e.CurrentPassword = 'Current password is required'
-    if (!pwdForm.NewPassword)                                e.NewPassword     = 'New password is required'
-    else if (pwdForm.NewPassword.length < 6)                 e.NewPassword     = 'Minimum 6 characters'
-    if (pwdForm.NewPassword !== pwdForm.ConfirmPassword)     e.ConfirmPassword = 'Passwords do not match'
+    if (!pwdForm.CurrentPassword)                          e.CurrentPassword = 'Current password is required'
+    if (!pwdForm.NewPassword)                              e.NewPassword     = 'New password is required'
+    else if (pwdForm.NewPassword.length < 6)               e.NewPassword     = 'Minimum 6 characters'
+    if (pwdForm.NewPassword !== pwdForm.ConfirmPassword)   e.ConfirmPassword = 'Passwords do not match'
     return e
   }
 

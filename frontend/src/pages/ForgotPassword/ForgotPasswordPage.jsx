@@ -11,7 +11,7 @@ import Button from '../../components/ui/Button'
 import Input  from '../../components/ui/Input'
 import { getErrorMessage } from '../../utils/helpers'
 
-const COOLDOWN_SECONDS = 30
+const COOLDOWN_SECONDS = 30 //cooldown seconds
 
 export default function ForgotPasswordPage() {
   const [email,     setEmail]     = useState('')

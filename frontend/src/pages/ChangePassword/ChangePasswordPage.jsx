@@ -2,10 +2,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Forced password change screen shown after first login with a temporary password.
 //
-// ACCESS RULES:
-//   - Only accessible when isLoggedIn = true AND requirePasswordChange = true.
-//   - ProtectedRoute redirects here automatically for users with the flag set.
-//   - After successful change, clearPasswordChangeFlag() navigates to /dashboard.
+// FIX: EyeBtn and PwdField were previously defined INSIDE the component body.
+// This caused React to treat them as new component types on every keystroke,
+// unmounting and remounting the input — losing focus after each character typed.
+// Fix: moved both components OUTSIDE ChangePasswordPage and pass state as props.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState } from 'react'
@@ -15,28 +15,72 @@ import { authAPI } from '../../api/services'
 import Button from '../../components/ui/Button'
 import { getErrorMessage } from '../../utils/helpers'
 
+// ── Eye toggle button — defined OUTSIDE the page component ───────────────────
+// Must be outside so React sees it as a stable component type across re-renders.
+function EyeBtn({ field, showPwd, setShowPwd }) {
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      onClick={() => setShowPwd(p => ({ ...p, [field]: !p[field] }))}
+      className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-light)] hover:text-[var(--text-dark)]"
+    >
+      {showPwd[field] ? (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/>
+        </svg>
+      ) : (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+        </svg>
+      )}
+    </button>
+  )
+}
+
+// ── Password input field — defined OUTSIDE the page component ────────────────
+function PwdField({ id, label, field, placeholder, form, setForm, errors, showPwd, setShowPwd }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-xs font-medium text-[var(--text-mid)] uppercase tracking-wide">{label}</label>
+      <div className="relative">
+        <input
+          type={showPwd[field] ? 'text' : 'password'}
+          placeholder={placeholder}
+          value={form[id]}
+          onChange={e => setForm(p => ({ ...p, [id]: e.target.value }))}
+          className={`w-full px-3 py-2 pr-10 text-sm rounded-sm border transition-colors bg-white
+            focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent
+            ${errors[id] ? 'border-red-400' : 'border-purple-200 hover:border-purple-400'}`}
+        />
+        <EyeBtn field={field} showPwd={showPwd} setShowPwd={setShowPwd} />
+      </div>
+      {errors[id] && <p className="text-xs text-red-500">{errors[id]}</p>}
+    </div>
+  )
+}
+
+// ── Main page component ───────────────────────────────────────────────────────
 export default function ChangePasswordPage() {
   const { isLoggedIn, requirePasswordChange, user, clearPasswordChangeFlag, logout } = useAuth()
 
-  const [form, setForm]     = useState({ CurrentPassword: '', NewPassword: '', ConfirmPassword: '' })
-  const [errors, setErrors] = useState({})
-  const [apiErr, setApiErr] = useState('')
+  const [form,    setForm]    = useState({ CurrentPassword: '', NewPassword: '', ConfirmPassword: '' })
+  const [errors,  setErrors]  = useState({})
+  const [apiErr,  setApiErr]  = useState('')
   const [loading, setLoading] = useState(false)
   const [showPwd, setShowPwd] = useState({ current: false, new: false, confirm: false })
 
-  // If not logged in at all, send to login
-  if (!isLoggedIn) return <Navigate to="/login" replace />
-
-  // If logged in but password change not required, send to dashboard
+  if (!isLoggedIn)          return <Navigate to="/login"     replace />
   if (!requirePasswordChange) return <Navigate to="/dashboard" replace />
 
   function validate() {
     const e = {}
-    if (!form.CurrentPassword)                          e.CurrentPassword  = 'Current password is required'
-    if (!form.NewPassword)                              e.NewPassword      = 'New password is required'
-    else if (form.NewPassword.length < 6)               e.NewPassword      = 'Minimum 6 characters'
-    else if (form.NewPassword === form.CurrentPassword) e.NewPassword      = 'New password must differ from the temporary one'
-    if (form.NewPassword !== form.ConfirmPassword)      e.ConfirmPassword  = 'Passwords do not match'
+    if (!form.CurrentPassword)                          e.CurrentPassword = 'Current password is required'
+    if (!form.NewPassword)                              e.NewPassword     = 'New password is required'
+    else if (form.NewPassword.length < 6)               e.NewPassword     = 'Minimum 6 characters'
+    else if (form.NewPassword === form.CurrentPassword) e.NewPassword     = 'New password must differ from the temporary one'
+    if (form.NewPassword !== form.ConfirmPassword)      e.ConfirmPassword = 'Passwords do not match'
     return e
   }
 
@@ -52,56 +96,12 @@ export default function ChangePasswordPage() {
         CurrentPassword: form.CurrentPassword,
         NewPassword:     form.NewPassword,
       })
-      // Update local state — clears the flag and navigates to dashboard
       clearPasswordChangeFlag()
     } catch (err) {
       setApiErr(getErrorMessage(err))
     } finally {
       setLoading(false)
     }
-  }
-
-  function EyeBtn({ field }) {
-    return (
-      <button
-        type="button"
-        tabIndex={-1}
-        onClick={() => setShowPwd(p => ({ ...p, [field]: !p[field] }))}
-        className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-light)] hover:text-[var(--text-dark)]"
-      >
-        {showPwd[field] ? (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/>
-          </svg>
-        ) : (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-          </svg>
-        )}
-      </button>
-    )
-  }
-
-  function PwdField({ id, label, field, placeholder }) {
-    return (
-      <div className="flex flex-col gap-1">
-        <label className="text-xs font-medium text-[var(--text-mid)] uppercase tracking-wide">{label}</label>
-        <div className="relative">
-          <input
-            type={showPwd[field] ? 'text' : 'password'}
-            placeholder={placeholder}
-            value={form[id]}
-            onChange={e => setForm(p => ({ ...p, [id]: e.target.value }))}
-            className={`w-full px-3 py-2 pr-10 text-sm rounded-sm border transition-colors bg-white
-              focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent
-              ${errors[id] ? 'border-red-400' : 'border-purple-200 hover:border-purple-400'}`}
-          />
-          <EyeBtn field={field} />
-        </div>
-        {errors[id] && <p className="text-xs text-red-500">{errors[id]}</p>}
-      </div>
-    )
   }
 
   return (
@@ -146,16 +146,25 @@ export default function ChangePasswordPage() {
               id="CurrentPassword" field="current"
               label="Temporary Password (from your email)"
               placeholder="Paste your temporary password"
+              form={form} setForm={setForm}
+              errors={errors}
+              showPwd={showPwd} setShowPwd={setShowPwd}
             />
             <PwdField
               id="NewPassword" field="new"
               label="New Password"
               placeholder="At least 6 characters"
+              form={form} setForm={setForm}
+              errors={errors}
+              showPwd={showPwd} setShowPwd={setShowPwd}
             />
             <PwdField
               id="ConfirmPassword" field="confirm"
               label="Confirm New Password"
               placeholder="Repeat new password"
+              form={form} setForm={setForm}
+              errors={errors}
+              showPwd={showPwd} setShowPwd={setShowPwd}
             />
 
             <Button type="submit" className="w-full mt-2" loading={loading}>

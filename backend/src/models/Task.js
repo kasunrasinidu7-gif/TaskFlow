@@ -211,6 +211,19 @@ const Task = {
    * full workload on open, then filter by project client-side.
    */
   async findAssignedToUser(userId) {
+    // Step 1: get all task IDs assigned to this user
+    const [taskIdRows] = await pool.execute(
+      `SELECT DISTINCT taskid FROM assigned_tasks WHERE userid = ?`,
+      [userId]
+    );
+
+    if (taskIdRows.length === 0) return [];
+
+    // Step 2: fetch each task individually using the existing findById-style query
+    // This avoids any GROUP BY / JOIN complexity entirely
+    const taskIds = taskIdRows.map(r => r.taskid);
+    const placeholders = taskIds.map(() => '?').join(', ');
+
     const [rows] = await pool.execute(
       `SELECT t.taskid      AS "TaskID",
               t.projectid   AS "ProjectID",
@@ -221,22 +234,14 @@ const Task = {
               t.duedate     AS "DueDate",
               t.createdat   AS "CreatedAt",
               t.updatedat   AS "UpdatedAt",
-              p.projectname AS "ProjectName",
-              (
-                SELECT STRING_AGG(DISTINCT u2.name, ', ')
-                FROM assigned_tasks at_inner
-                JOIN users u2 ON at_inner.userid = u2.userid
-                WHERE at_inner.taskid = t.taskid
-              ) AS "AssignedUsers"
+              p.projectname AS "ProjectName"
        FROM tasks t
        JOIN projects p ON t.projectid = p.projectid
-       WHERE EXISTS (
-         SELECT 1 FROM assigned_tasks at_check
-         WHERE at_check.taskid = t.taskid AND at_check.userid = ?
-       )
+       WHERE t.taskid IN (${placeholders})
        ORDER BY t.projectid ASC, t.duedate ASC`,
-      [userId]
+      taskIds
     );
+
     return rows;
   },
 

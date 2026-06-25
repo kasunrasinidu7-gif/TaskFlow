@@ -3,13 +3,9 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * Task Model — Supabase PostgreSQL version.
  *
- * Key changes from MySQL:
- *   - GROUP_CONCAT(DISTINCT x SEPARATOR ', ') → STRING_AGG(DISTINCT x, ', ')
- *   - CURDATE()  → CURRENT_DATE
- *   - INSERT IGNORE → ON CONFLICT DO NOTHING
- *   - LIMIT ? now works natively in pg — no integer workaround needed
- *   - All column names aliased with quoted casing for controller compatibility
- *   - GROUP BY must include all non-aggregate columns (PostgreSQL strict mode)
+ * ADDED: findAssignedToUser(userId) — fetches all tasks assigned to a specific
+ *   user across ALL projects, used by the Kanban board for PM/Collaborator view.
+ * ADDED: unassignUser(taskId, userId) — already existed, confirmed present.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -69,7 +65,6 @@ const Task = {
       params.push(projectId);
     }
 
-    // PostgreSQL: GROUP BY must list every non-aggregate SELECT column
     sql += `
       GROUP BY t.taskid, p.projectname, u.name
       ORDER BY t.createdat DESC
@@ -157,10 +152,11 @@ const Task = {
   },
 
   async unassignUser(taskId, userId) {
-    await pool.execute(
+    const [, meta] = await pool.execute(
       `DELETE FROM assigned_tasks WHERE taskid = ? AND userid = ?`,
       [taskId, userId]
     );
+    return meta.rowCount;
   },
 
   async isAssigned(taskId, userId) {
@@ -194,14 +190,48 @@ const Task = {
               t.duedate     AS "DueDate",
               t.createdat   AS "CreatedAt",
               t.updatedat   AS "UpdatedAt",
+              p.projectname AS "ProjectName",
               STRING_AGG(DISTINCT u.name, ', ') AS "AssignedUsers"
        FROM tasks t
+       JOIN projects p ON t.projectid = p.projectid
        LEFT JOIN assigned_tasks at2 ON t.taskid = at2.taskid
        LEFT JOIN users u ON at2.userid = u.userid
        WHERE t.projectid = ?
-       GROUP BY t.taskid
+       GROUP BY t.taskid, p.projectname
        ORDER BY t.priority DESC, t.duedate ASC`,
       [projectId]
+    );
+    return rows;
+  },
+
+  /**
+   * findAssignedToUser(userId)
+   * NEW — fetches all tasks assigned to a specific user across ALL projects.
+   * Used by KanbanPage for PM and Collaborator roles so they see their
+   * full workload on open, then filter by project client-side.
+   */
+  async findAssignedToUser(userId) {
+    const [rows] = await pool.execute(
+      `SELECT t.taskid      AS "TaskID",
+              t.projectid   AS "ProjectID",
+              t.title       AS "Title",
+              t.description AS "Description",
+              t.priority    AS "Priority",
+              t.status      AS "Status",
+              t.duedate     AS "DueDate",
+              t.createdat   AS "CreatedAt",
+              t.updatedat   AS "UpdatedAt",
+              p.projectname AS "ProjectName",
+              STRING_AGG(DISTINCT u.name, ', ') AS "AssignedUsers"
+       FROM tasks t
+       JOIN projects p ON t.projectid = p.projectid
+       JOIN assigned_tasks at2 ON t.taskid = at2.taskid
+       LEFT JOIN assigned_tasks at3 ON t.taskid = at3.taskid
+       LEFT JOIN users u ON at3.userid = u.userid
+       WHERE at2.userid = ?
+       GROUP BY t.taskid, p.projectname
+       ORDER BY t.projectid ASC, t.priority DESC, t.duedate ASC`,
+      [userId]
     );
     return rows;
   },
@@ -240,7 +270,6 @@ const Task = {
   },
 
   async getRecent(userId, roleName, limit = 5) {
-    // pg accepts LIMIT $N with integer params natively — no workaround needed
     let sql, params;
 
     if (roleName === 'Collaborator') {

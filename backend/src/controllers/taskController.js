@@ -1,10 +1,11 @@
 /**
  * controllers/taskController.js
- * Handles all task-related actions including assignment with active-task limit.
  *
- * BUSINESS RULE: A Collaborator may have at most 10 ACTIVE tasks simultaneously.
- * ACTIVE = any task whose Status is NOT 'Completed'.
- * This is enforced here before inserting into assigned_tasks.
+ * ADDED: getMyTasks — returns all tasks assigned to the logged-in user
+ *   across all projects, used by KanbanPage for PM/Collaborator view.
+ *
+ * ADDED: unassign — removes a user from a task's assigned_tasks.
+ *   Only Admin and Project Manager can call this.
  */
 
 const Task         = require('../models/Task');
@@ -28,6 +29,21 @@ const taskController = {
     } catch (err) {
       console.error('getAll tasks error:', err);
       return sendError(res, 'Failed to fetch tasks', 500);
+    }
+  },
+
+  /**
+   * GET /api/tasks/my
+   * Returns all tasks assigned to the logged-in user across all projects.
+   * Used by KanbanPage for PM and Collaborator roles.
+   */
+  async getMyTasks(req, res) {
+    try {
+      const tasks = await Task.findAssignedToUser(req.user.UserID);
+      return sendSuccess(res, tasks);
+    } catch (err) {
+      console.error('getMyTasks error:', err);
+      return sendError(res, 'Failed to fetch your tasks', 500);
     }
   },
 
@@ -87,7 +103,6 @@ const taskController = {
       const affected = await Task.updateStatus(req.params.id, Status);
       if (!affected) return sendError(res, 'Task not found', 404);
 
-      // Emit real-time Kanban update
       const updatedTask = await Task.findById(req.params.id);
       const io = req.app.get('io');
       if (io && updatedTask) {
@@ -115,11 +130,8 @@ const taskController = {
   /**
    * POST /api/tasks/:id/assign
    * Body: { UserIDs: [1, 2, 3] }
-   *
-   * BUSINESS RULE ENFORCED:
-   *   Each Collaborator may have max 10 ACTIVE tasks.
-   *   If a user already has 10 active tasks, they are skipped and reported.
-   *   Assignment notification is created for each successfully assigned user.
+   * Skips users already assigned (ON CONFLICT DO NOTHING in model).
+   * Enforces 10-active-task limit for Collaborators.
    */
   async assign(req, res) {
     try {
@@ -133,44 +145,42 @@ const taskController = {
       const task = await Task.findById(taskId);
       if (!task) return sendError(res, 'Task not found', 404);
 
-      const skipped  = []; // Users blocked by the 10-task limit
-      const assigned = []; // Successfully assigned users
+      const skipped  = [];
+      const assigned = [];
 
       for (const uid of UserIDs) {
         const numericUid = parseInt(uid, 10);
 
-        // Fetch the user to check their role
         const userRecord = await User.findById(numericUid);
         if (!userRecord) continue;
 
-        // Only enforce the limit for Collaborators
+        // Check if already assigned — skip silently (DB handles with ON CONFLICT)
+        const alreadyAssigned = await Task.isAssigned(taskId, numericUid);
+        if (alreadyAssigned) continue;
+
         if (userRecord.RoleName === 'Collaborator') {
           const activeCount = await Task.countActiveForUser(numericUid);
           if (activeCount >= ACTIVE_TASK_LIMIT) {
             skipped.push({ UserID: numericUid, Name: userRecord.Name, activeCount });
-            continue; // Skip this user — at the limit
+            continue;
           }
         }
 
-        // Assign the user (INSERT IGNORE handles duplicates silently)
         await Task.assignUser(taskId, numericUid, req.user.UserID);
         assigned.push(numericUid);
 
-        // Create assignment notification with assigner name and task details
         const notif = await Notification.create({
           userId:  numericUid,
           taskId,
           message: `You have been assigned to task: "${task.Title}" (Project: ${task.ProjectName}) by ${req.user.Name}`,
         });
 
-        // Push real-time notification via Socket.io
         const io = req.app.get('io');
         if (io) {
           io.to(`user_${numericUid}`).emit('new_notification', notif);
         }
       }
 
-      // Build a clear response message
       let message = `${assigned.length} user(s) assigned successfully.`;
       if (skipped.length > 0) {
         const names = skipped.map(s => `${s.Name} (${s.activeCount} active tasks)`).join(', ');
@@ -181,6 +191,28 @@ const taskController = {
     } catch (err) {
       console.error('assign task error:', err);
       return sendError(res, 'Failed to assign task', 500);
+    }
+  },
+
+  /**
+   * DELETE /api/tasks/:id/assign/:userId
+   * Removes a user from the task's assigned_tasks.
+   * Only Admin and Project Manager can call this (enforced in routes).
+   */
+  async unassign(req, res) {
+    try {
+      const { id: taskId, userId } = req.params;
+
+      const task = await Task.findById(taskId);
+      if (!task) return sendError(res, 'Task not found', 404);
+
+      const affected = await Task.unassignUser(taskId, userId);
+      if (!affected) return sendError(res, 'User was not assigned to this task', 404);
+
+      return sendSuccess(res, null, 'User removed from task successfully');
+    } catch (err) {
+      console.error('unassign task error:', err);
+      return sendError(res, 'Failed to remove user from task', 500);
     }
   },
 

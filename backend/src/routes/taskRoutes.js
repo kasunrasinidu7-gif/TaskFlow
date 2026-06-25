@@ -1,5 +1,8 @@
 /**
  * routes/taskRoutes.js
+ *
+ * ADDED: GET  /tasks/my              — fetch all tasks assigned to logged-in user
+ * ADDED: DELETE /tasks/:id/assign/:userId — remove a user from a task (Admin/PM only)
  */
 
 const express        = require('express');
@@ -15,98 +18,21 @@ const upload         = require('../middleware/upload');
 
 router.use(authMiddleware);
 
-/**
- * @swagger
- * tags:
- *   name: Tasks
- *   description: Task management
- */
+// ── My tasks (for Kanban PM/Collaborator view) ────────────────────────────────
+// IMPORTANT: this must be declared BEFORE /:id to avoid Express matching
+// "my" as a task ID parameter.
+router.get('/my', taskController.getMyTasks);
 
-/**
- * @swagger
- * /tasks:
- *   get:
- *     summary: Get all tasks (filtered by role)
- *     tags: [Tasks]
- *     parameters:
- *       - in: query
- *         name: search
- *         schema: { type: string }
- *       - in: query
- *         name: status
- *         schema: { type: string, enum: [To Do, In Progress, Completed] }
- *       - in: query
- *         name: priority
- *         schema: { type: string, enum: [Low, Medium, High, Critical] }
- *       - in: query
- *         name: projectId
- *         schema: { type: integer }
- *     responses:
- *       200:
- *         description: List of tasks
- */
+// ── Task list & project filter ────────────────────────────────────────────────
 router.get('/', taskController.getAll);
 
-/**
- * @swagger
- * /tasks/by-project/{projectId}:
- *   get:
- *     summary: Get all tasks for a project (used by Kanban board)
- *     tags: [Tasks]
- *     parameters:
- *       - in: path
- *         name: projectId
- *         required: true
- *         schema: { type: integer }
- *     responses:
- *       200:
- *         description: List of tasks for the project
- */
+// ── Tasks by project (Kanban) ─────────────────────────────────────────────────
 router.get('/by-project/:projectId', taskController.getByProject);
 
-/**
- * @swagger
- * /tasks/{id}:
- *   get:
- *     summary: Get a single task with assignees
- *     tags: [Tasks]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: integer }
- *     responses:
- *       200:
- *         description: Task details
- *       404:
- *         description: Task not found
- */
+// ── Single task ───────────────────────────────────────────────────────────────
 router.get('/:id', taskController.getOne);
 
-/**
- * @swagger
- * /tasks:
- *   post:
- *     summary: Create a task (Admin or Project Manager)
- *     tags: [Tasks]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [ProjectID, Title]
- *             properties:
- *               ProjectID: { type: integer }
- *               Title: { type: string }
- *               Description: { type: string }
- *               Priority: { type: string, enum: [Low, Medium, High, Critical] }
- *               Status: { type: string, enum: [To Do, In Progress, Completed] }
- *               DueDate: { type: string, format: date }
- *     responses:
- *       201:
- *         description: Task created
- */
+// ── Create task ───────────────────────────────────────────────────────────────
 router.post(
   '/',
   rbac('Admin', 'Project Manager'),
@@ -120,21 +46,7 @@ router.post(
   taskController.create
 );
 
-/**
- * @swagger
- * /tasks/{id}:
- *   put:
- *     summary: Update a task (Admin or Project Manager)
- *     tags: [Tasks]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: integer }
- *     responses:
- *       200:
- *         description: Task updated
- */
+// ── Update task ───────────────────────────────────────────────────────────────
 router.put(
   '/:id',
   rbac('Admin', 'Project Manager'),
@@ -147,30 +59,7 @@ router.put(
   taskController.update
 );
 
-/**
- * @swagger
- * /tasks/{id}/status:
- *   patch:
- *     summary: Update task status (all roles — Collaborators limited to assigned tasks)
- *     tags: [Tasks]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: integer }
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [Status]
- *             properties:
- *               Status: { type: string, enum: [To Do, In Progress, Completed] }
- *     responses:
- *       200:
- *         description: Status updated
- */
+// ── Update status (all roles) ─────────────────────────────────────────────────
 router.patch(
   '/:id/status',
   [body('Status').isIn(['To Do', 'In Progress', 'Completed']).withMessage('Invalid status')],
@@ -178,49 +67,10 @@ router.patch(
   taskController.updateStatus
 );
 
-/**
- * @swagger
- * /tasks/{id}:
- *   delete:
- *     summary: Delete a task (Admin or Project Manager)
- *     tags: [Tasks]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: integer }
- *     responses:
- *       200:
- *         description: Task deleted
- */
+// ── Delete task ───────────────────────────────────────────────────────────────
 router.delete('/:id', rbac('Admin', 'Project Manager'), taskController.delete);
 
-/**
- * @swagger
- * /tasks/{id}/assign:
- *   post:
- *     summary: Assign users to a task (Admin or Project Manager)
- *     tags: [Tasks]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: integer }
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [UserIDs]
- *             properties:
- *               UserIDs:
- *                 type: array
- *                 items: { type: integer }
- *     responses:
- *       200:
- *         description: Users assigned
- */
+// ── Assign users to task ──────────────────────────────────────────────────────
 router.post(
   '/:id/assign',
   rbac('Admin', 'Project Manager'),
@@ -229,49 +79,15 @@ router.post(
   taskController.assign
 );
 
+// ── Remove a user from a task (NEW) ──────────────────────────────────────────
+router.delete(
+  '/:id/assign/:userId',
+  rbac('Admin', 'Project Manager'),
+  taskController.unassign
+);
+
 // ── Comments ──────────────────────────────────────────────────────────────────
-
-/**
- * @swagger
- * /tasks/{id}/comments:
- *   get:
- *     summary: Get comments for a task
- *     tags: [Tasks]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: integer }
- *     responses:
- *       200:
- *         description: List of comments
- */
-router.get('/:id/comments', commentController.getByTask);
-
-/**
- * @swagger
- * /tasks/{id}/comments:
- *   post:
- *     summary: Add a comment to a task
- *     tags: [Tasks]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: integer }
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [CommentText]
- *             properties:
- *               CommentText: { type: string }
- *     responses:
- *       201:
- *         description: Comment added
- */
+router.get('/:id/comments',  commentController.getByTask);
 router.post(
   '/:id/comments',
   [body('CommentText').notEmpty().withMessage('Comment text is required')],
@@ -280,49 +96,7 @@ router.post(
 );
 
 // ── Attachments ───────────────────────────────────────────────────────────────
-
-/**
- * @swagger
- * /tasks/{id}/attachments:
- *   get:
- *     summary: Get attachments for a task
- *     tags: [Tasks]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: integer }
- *     responses:
- *       200:
- *         description: List of attachments
- */
 router.get('/:id/attachments', attachmentController.getByTask);
-
-/**
- * @swagger
- * /tasks/{id}/attachments:
- *   post:
- *     summary: Upload a file attachment to a task
- *     tags: [Tasks]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: integer }
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             properties:
- *               file:
- *                 type: string
- *                 format: binary
- *     responses:
- *       201:
- *         description: File uploaded
- */
 router.post('/:id/attachments', upload.single('file'), attachmentController.upload);
 
 module.exports = router;

@@ -2,7 +2,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // All API service functions — one per backend endpoint.
 // Components call these functions instead of using axios directly,
-// which keeps all API logic in one place.
+// which keeps all API logic in one place
 // ─────────────────────────────────────────────────────────────────────────────
 
 import api from './axios'

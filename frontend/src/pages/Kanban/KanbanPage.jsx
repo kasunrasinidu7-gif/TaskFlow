@@ -14,7 +14,7 @@
 //      a. The UI updates instantly (optimistic update) — feels snappy.
 //      b. PATCH /tasks/:id/status is called to persist it in MySQL.
 //      c. Socket.io emits 'task_updated' to everyone in the project room,
-//         so other users' boards update in real time without refreshing.
+//         so other users' boards update in real time without refreshing
 //
 // REAL-TIME FLOW:
 //   - On mount: socket joins `project_<id>` room via 'join_project_room'.

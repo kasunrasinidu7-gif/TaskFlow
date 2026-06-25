@@ -222,15 +222,14 @@ const Task = {
               t.createdat   AS "CreatedAt",
               t.updatedat   AS "UpdatedAt",
               p.projectname AS "ProjectName",
-              STRING_AGG(DISTINCT au.name, ', ') AS "AssignedUsers"
+              STRING_AGG(DISTINCT u.name, ', ') AS "AssignedUsers"
        FROM tasks t
        JOIN projects p ON t.projectid = p.projectid
        JOIN assigned_tasks at2 ON t.taskid = at2.taskid
-       LEFT JOIN users au ON at2.userid = au.userid
+       LEFT JOIN assigned_tasks at3 ON t.taskid = at3.taskid
+       LEFT JOIN users u ON at3.userid = u.userid
        WHERE at2.userid = ?
-       GROUP BY t.taskid, t.projectid, t.title, t.description,
-                t.priority, t.status, t.duedate, t.createdat,
-                t.updatedat, p.projectname
+       GROUP BY t.taskid, p.projectname
        ORDER BY t.projectid ASC, t.priority DESC, t.duedate ASC`,
       [userId]
     );

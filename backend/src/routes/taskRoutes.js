@@ -70,7 +70,7 @@ router.patch(
 // ── Delete task ───────────────────────────────────────────────────────────────
 router.delete('/:id', rbac('Admin', 'Project Manager'), taskController.delete);
 
-// ── Assign users to task ────────────────────────────────────────────────────── 
+// ── Assign users to task ──────────────────────────────────────────────────────
 router.post(
   '/:id/assign',
   rbac('Admin', 'Project Manager'),

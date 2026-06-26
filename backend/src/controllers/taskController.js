@@ -1,11 +1,11 @@
 /**
  * controllers/taskController.js
  *
- * ADDED: getMyTasks — returns all tasks assigned to the logged-in user
- *   across all projects, used by KanbanPage for PM/Collaborator view.
+ * ADDED: Due date validation in create() and update().
+ *   Due date must be today or in the future — past dates are rejected with 400.
  *
- * ADDED: unassign — removes a user from a task's assigned_tasks.
- *   Only Admin and Project Manager can call this.
+ * ADDED: getMyTasks — returns all tasks assigned to the logged-in user.
+ * ADDED: unassign — removes a user from a task.
  */
 
 const Task         = require('../models/Task');
@@ -14,6 +14,20 @@ const User         = require('../models/User');
 const { sendSuccess, sendError } = require('../utils/response');
 
 const ACTIVE_TASK_LIMIT = 10;
+
+/**
+ * Shared due date guard.
+ * Returns an error message string if the date is in the past, otherwise null.
+ */
+function validateDueDate(DueDate) {
+  if (!DueDate) return null; // due date is optional
+  const today = new Date();
+  today.setHours(0, 0, 0, 0); // start of today — ignore time component
+  const due = new Date(DueDate);
+  if (isNaN(due.getTime())) return 'Due date is not a valid date.';
+  if (due < today) return 'Due date cannot be in the past. Please select today or a future date.';
+  return null;
+}
 
 const taskController = {
 
@@ -35,7 +49,6 @@ const taskController = {
   /**
    * GET /api/tasks/my
    * Returns all tasks assigned to the logged-in user across all projects.
-   * Used by KanbanPage for PM and Collaborator roles.
    */
   async getMyTasks(req, res) {
     try {
@@ -61,6 +74,11 @@ const taskController = {
   async create(req, res) {
     try {
       const { ProjectID, Title, Description, Priority, Status, DueDate } = req.body;
+
+      // Due date validation — must be today or future
+      const dueDateError = validateDueDate(DueDate);
+      if (dueDateError) return sendError(res, dueDateError, 400);
+
       const newId = await Task.create({
         projectId:   ProjectID,
         title:       Title,
@@ -80,6 +98,11 @@ const taskController = {
   async update(req, res) {
     try {
       const { Title, Description, Priority, Status, DueDate } = req.body;
+
+      // Due date validation — must be today or future
+      const dueDateError = validateDueDate(DueDate);
+      if (dueDateError) return sendError(res, dueDateError, 400);
+
       const affected = await Task.update(req.params.id, {
         title: Title, description: Description, priority: Priority, status: Status, dueDate: DueDate,
       });
@@ -127,12 +150,6 @@ const taskController = {
     }
   },
 
-  /**
-   * POST /api/tasks/:id/assign
-   * Body: { UserIDs: [1, 2, 3] }
-   * Skips users already assigned (ON CONFLICT DO NOTHING in model).
-   * Enforces 10-active-task limit for Collaborators.
-   */
   async assign(req, res) {
     try {
       const taskId      = req.params.id;
@@ -150,11 +167,9 @@ const taskController = {
 
       for (const uid of UserIDs) {
         const numericUid = parseInt(uid, 10);
-
         const userRecord = await User.findById(numericUid);
         if (!userRecord) continue;
 
-        // Check if already assigned — skip silently (DB handles with ON CONFLICT)
         const alreadyAssigned = await Task.isAssigned(taskId, numericUid);
         if (alreadyAssigned) continue;
 
@@ -176,9 +191,7 @@ const taskController = {
         });
 
         const io = req.app.get('io');
-        if (io) {
-          io.to(`user_${numericUid}`).emit('new_notification', notif);
-        }
+        if (io) io.to(`user_${numericUid}`).emit('new_notification', notif);
       }
 
       let message = `${assigned.length} user(s) assigned successfully.`;
@@ -194,21 +207,13 @@ const taskController = {
     }
   },
 
-  /**
-   * DELETE /api/tasks/:id/assign/:userId
-   * Removes a user from the task's assigned_tasks.
-   * Only Admin and Project Manager can call this (enforced in routes).
-   */
   async unassign(req, res) {
     try {
       const { id: taskId, userId } = req.params;
-
       const task = await Task.findById(taskId);
       if (!task) return sendError(res, 'Task not found', 404);
-
       const affected = await Task.unassignUser(taskId, userId);
       if (!affected) return sendError(res, 'User was not assigned to this task', 404);
-
       return sendSuccess(res, null, 'User removed from task successfully');
     } catch (err) {
       console.error('unassign task error:', err);

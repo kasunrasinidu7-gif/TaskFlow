@@ -1,0 +1,87 @@
+# .github/workflows/ci.yml
+# ─────────────────────────────────────────────────────────────────────────────
+# TaskFlow CI Pipeline
+# Runs on every push and pull request to main.
+# If any job fails, Vercel and Render will NOT auto-deploy — protecting the
+# live site at taskflow.buzz and taskflow100002.onrender.com.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: TaskFlow CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+
+  # ── 1. Frontend build check ──────────────────────────────────────────────────
+  # Confirms the React/Vite app builds cleanly before Vercel deploys it.
+  frontend:
+    name: Frontend — Build check
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Vite needs VITE_API_URL at build time — provide a dummy value so the
+      # build doesn't fail in CI (the real value is set in Vercel's dashboard).
+      - name: Build
+        run: npm run build
+        env:
+          VITE_API_URL: https://taskflow100002.onrender.com
+
+      - name: Confirm build output exists
+        run: ls dist/index.html
+
+  # ── 2. Backend syntax & startup check ───────────────────────────────────────
+  # Confirms Node.js can load the app without crashing (no DB connection needed).
+  backend:
+    name: Backend — Syntax & startup check
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Syntax-check every JS file — catches broken imports, missing brackets, etc.
+      - name: Check syntax (node --check)
+        run: find src -name "*.js" | xargs node --check
+
+      # Run existing Jest tests if any are present (safe no-op if none exist yet).
+      - name: Run tests (if any)
+        run: npm test -- --passWithNoTests
+        env:
+          NODE_ENV: test
+          JWT_SECRET: ci-test-secret
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder

@@ -115,10 +115,6 @@ export default function TasksPage() {
     const e = {}
     if (!form.Title.trim()) e.Title     = 'Title is required'
     if (!form.ProjectID)    e.ProjectID = 'Please select a project'
-    if (form.DueDate) {
-      const today = new Date(); today.setHours(0,0,0,0);
-      if (new Date(form.DueDate) < today) e.DueDate = 'Due date cannot be in the past'
-    }
     return e
   }
 
@@ -275,7 +271,7 @@ export default function TasksPage() {
               onChange={e => setForm(p => ({ ...p, Status: e.target.value }))}>
               {['To Do','In Progress','Completed'].map(v => <option key={v}>{v}</option>)}
             </Input>
-            <Input label="Due Date" type="date" value={form.DueDate} min={new Date().toISOString().split('T')[0]} error={formErr.DueDate}
+            <Input label="Due Date" type="date" value={form.DueDate}
               onChange={e => setForm(p => ({ ...p, DueDate: e.target.value }))} />
           </div>
           <div className="flex gap-3 justify-end pt-2">

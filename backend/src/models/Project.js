@@ -124,7 +124,28 @@ const Project = {
     );
   },
 
+  /**
+   * removeMember(projectId, userId)
+   *
+   * FIX: Now also removes the user from all tasks inside this project.
+   * Previously only deleted from project_members, leaving the user still
+   * assigned to tasks they can no longer see.
+   *
+   * Step 1 — Remove from all tasks in this project
+   * Step 2 — Remove from the project itself
+   */
   async removeMember(projectId, userId) {
+    // Step 1: unassign from all tasks belonging to this project
+    await pool.execute(
+      `DELETE FROM assigned_tasks
+       WHERE userid = ?
+         AND taskid IN (
+           SELECT taskid FROM tasks WHERE projectid = ?
+         )`,
+      [userId, projectId]
+    );
+
+    // Step 2: remove from project_members
     const [, meta] = await pool.execute(
       `DELETE FROM project_members WHERE projectid = ? AND userid = ?`,
       [projectId, userId]

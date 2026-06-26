@@ -1,4 +1,7 @@
 // src/pages/Projects/ProjectsPage.jsx
+//
+// CHANGED: Delete now shows a password confirmation modal.
+//   Admin/PM must enter their own password before the project is deleted.
 
 import React, { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -7,7 +10,6 @@ import { useAuth } from '../../context/AuthContext'
 import Button from '../../components/ui/Button'
 import Input from '../../components/ui/Input'
 import Modal from '../../components/ui/Modal'
-import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import Badge from '../../components/ui/Badge'
 import { PageLoader } from '../../components/ui/Spinner'
 import EmptyState from '../../components/ui/EmptyState'
@@ -28,15 +30,20 @@ export default function ProjectsPage() {
   const [statusF,  setStatusF]  = useState('')
 
   const [modal,   setModal]   = useState({ open: false, mode: 'create', project: null })
-  const [confirm, setConfirm] = useState({ open: false, id: null })
   const [form,    setForm]    = useState(EMPTY_FORM)
   const [saving,  setSaving]  = useState(false)
   const [formErr, setFormErr] = useState({})
 
+  // ── Delete password confirm state ─────────────────────────────────────────
+  const [deleteModal,      setDeleteModal]      = useState({ open: false, id: null, name: '' })
+  const [confirmPassword,  setConfirmPassword]  = useState('')
+  const [pwdError,         setPwdError]         = useState('')
+  const [deleting,         setDeleting]         = useState(false)
+
   // Member management modal
-  const [memberModal, setMemberModal]   = useState({ open: false, project: null })
-  const [allUsers,    setAllUsers]      = useState([])
-  const [selectedUID, setSelectedUID]   = useState('')
+  const [memberModal, setMemberModal] = useState({ open: false, project: null })
+  const [allUsers,    setAllUsers]    = useState([])
+  const [selectedUID, setSelectedUID] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -45,12 +52,23 @@ export default function ProjectsPage() {
       setProjects(r.data.data)
     } catch (e) { toast.error(getErrorMessage(e)) }
     finally { setLoading(false) }
-  }, [search, statusF])
+  }, [search, statusF]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load() }, [load])
 
   function openCreate() { setForm(EMPTY_FORM); setFormErr({}); setModal({ open: true, mode: 'create', project: null }) }
   function openEdit(p)  { setForm({ ProjectName: p.ProjectName, Description: p.Description || '', Status: p.Status }); setFormErr({}); setModal({ open: true, mode: 'edit', project: p }) }
+
+  function openDeleteModal(p) {
+    setConfirmPassword('')
+    setPwdError('')
+    setDeleteModal({ open: true, id: p.ProjectID, name: p.ProjectName })
+  }
+  function closeDeleteModal() {
+    setDeleteModal({ open: false, id: null, name: '' })
+    setConfirmPassword('')
+    setPwdError('')
+  }
 
   async function handleSave() {
     if (!form.ProjectName.trim()) { setFormErr({ ProjectName: 'Name is required' }); return }
@@ -64,21 +82,30 @@ export default function ProjectsPage() {
   }
 
   async function handleDelete() {
-    setSaving(true)
+    if (!confirmPassword.trim()) { setPwdError('Please enter your password'); return }
+    setPwdError('')
+    setDeleting(true)
     try {
-      await projectAPI.delete(confirm.id)
-      toast.success('Project deleted')
-      setConfirm({ open: false, id: null }); load()
-    } catch (e) { toast.error(getErrorMessage(e)) }
-    finally { setSaving(false) }
+      await projectAPI.delete(deleteModal.id, { ConfirmPassword: confirmPassword })
+      toast.success(`"${deleteModal.name}" deleted`)
+      closeDeleteModal()
+      load()
+    } catch (e) {
+      const msg = getErrorMessage(e)
+      if (msg.toLowerCase().includes('password') || msg.toLowerCase().includes('incorrect')) {
+        setPwdError(msg)
+      } else {
+        toast.error(msg)
+      }
+    } finally {
+      setDeleting(false)
+    }
   }
 
   async function openMemberModal(p) {
-    // Use getAssignable instead of getAll — getAll is Admin-only,
-    // getAssignable is accessible by Admin + Project Manager
-    const r = await userAPI.getAssignable()
-    setAllUsers(r.data.data)
+    const r    = await userAPI.getAssignable()
     const full = await projectAPI.getOne(p.ProjectID)
+    setAllUsers(r.data.data)
     setMemberModal({ open: true, project: full.data.data })
     setSelectedUID('')
   }
@@ -122,15 +149,18 @@ export default function ProjectsPage() {
         </select>
       </div>
 
-      {/* Cards grid */}
+      {/* Cards */}
       {loading ? <PageLoader /> : projects.length === 0 ? (
-        <EmptyState icon="📁" title="No projects found" description={canManage ? 'Create your first project.' : 'You have no assigned projects yet.'} action={canManage && <Button onClick={openCreate}>Create Project</Button>} />
+        <EmptyState icon="📁" title="No projects found"
+          description={canManage ? 'Create your first project.' : 'You have no assigned projects yet.'}
+          action={canManage && <Button onClick={openCreate}>Create Project</Button>} />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {projects.map(p => (
             <div key={p.ProjectID} className="bg-white rounded-[var(--radius)] shadow-sm border border-purple-50 p-5 flex flex-col gap-3 hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between gap-2">
-                <h3 className="font-display font-semibold text-[var(--text-dark)] leading-tight cursor-pointer hover:text-primary" onClick={() => navigate(`/projects/${p.ProjectID}`)}>
+                <h3 className="font-display font-semibold text-[var(--text-dark)] leading-tight cursor-pointer hover:text-primary"
+                  onClick={() => navigate(`/projects/${p.ProjectID}`)}>
                   {p.ProjectName}
                 </h3>
                 <Badge className={projectStatusBadge(p.Status)}>{p.Status}</Badge>
@@ -145,7 +175,7 @@ export default function ProjectsPage() {
                 <div className="flex gap-2 pt-1 border-t border-purple-50">
                   <Button variant="ghost" size="sm" onClick={() => openEdit(p)}>Edit</Button>
                   <Button variant="ghost" size="sm" onClick={() => openMemberModal(p)}>Members</Button>
-                  <Button variant="danger" size="sm" onClick={() => setConfirm({ open: true, id: p.ProjectID })}>Delete</Button>
+                  <Button variant="danger" size="sm" onClick={() => openDeleteModal(p)}>Delete</Button>
                 </div>
               )}
             </div>
@@ -173,8 +203,47 @@ export default function ProjectsPage() {
         </div>
       </Modal>
 
-      {/* Delete confirm */}
-      <ConfirmDialog isOpen={confirm.open} onClose={() => setConfirm({ open: false, id: null })} onConfirm={handleDelete} title="Delete Project?" message="All tasks, comments, and attachments in this project will be permanently deleted." loading={saving} />
+      {/* ── Delete password confirm modal ─────────────────────────────────────── */}
+      <Modal isOpen={deleteModal.open} onClose={closeDeleteModal} title="Confirm Delete Project">
+        <div className="flex flex-col gap-4">
+          <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 flex gap-3 items-start">
+            <span className="text-red-500 text-lg flex-shrink-0">🗑️</span>
+            <div>
+              <p className="text-sm font-semibold text-red-700 mb-0.5">
+                Delete "{deleteModal.name}"?
+              </p>
+              <p className="text-xs text-red-600">
+                This will permanently delete the project and all its tasks, comments, and attachments. This action cannot be undone.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-[var(--text-mid)] uppercase tracking-wide">
+              Your Password
+            </label>
+            <input
+              type="password"
+              placeholder="Enter your password to confirm"
+              value={confirmPassword}
+              onChange={e => { setConfirmPassword(e.target.value); setPwdError('') }}
+              onKeyDown={e => e.key === 'Enter' && handleDelete()}
+              className={`w-full px-3 py-2 text-sm rounded-sm border transition-colors bg-white
+                focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-transparent
+                ${pwdError ? 'border-red-400' : 'border-purple-200 hover:border-purple-400'}`}
+              autoFocus
+            />
+            {pwdError && <p className="text-xs text-red-500">{pwdError}</p>}
+          </div>
+
+          <div className="flex gap-3 justify-end pt-2">
+            <Button variant="ghost" onClick={closeDeleteModal}>Cancel</Button>
+            <Button variant="danger" onClick={handleDelete} loading={deleting} disabled={!confirmPassword.trim()}>
+              Delete Project
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Members modal */}
       <Modal isOpen={memberModal.open} onClose={() => setMemberModal({ open: false, project: null })} title={`Members — ${memberModal.project?.ProjectName}`} size="md">
@@ -203,6 +272,7 @@ export default function ProjectsPage() {
             }
           </div>
         </div>
-      </Modal>    </>
+      </Modal>
+    </>
   )
 }

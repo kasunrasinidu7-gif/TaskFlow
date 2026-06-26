@@ -1,12 +1,13 @@
 // src/pages/Users/UsersPage.jsx
-// Admin-only page for creating, editing, and deactivating users.
+//
+// CHANGED: Deactivate now shows a password confirmation modal.
+//   Admin must enter their own password before the user is deactivated.
 
 import React, { useEffect, useState, useCallback } from 'react'
 import { userAPI } from '../../api/services'
 import Button from '../../components/ui/Button'
 import Input from '../../components/ui/Input'
 import Modal from '../../components/ui/Modal'
-import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import Badge from '../../components/ui/Badge'
 import { PageLoader } from '../../components/ui/Spinner'
 import EmptyState from '../../components/ui/EmptyState'
@@ -17,17 +18,22 @@ const EMPTY_FORM = { Name: '', Email: '', RoleName: 'Collaborator' }
 
 export default function UsersPage() {
   const toast = useToast()
-  const [users,   setUsers]   = useState([])
-  const [roles,   setRoles]   = useState([])
-  const [loading, setLoading] = useState(true)
-  const [search,  setSearch]  = useState('')
+  const [users,      setUsers]      = useState([])
+  const [roles,      setRoles]      = useState([])
+  const [loading,    setLoading]    = useState(true)
+  const [search,     setSearch]     = useState('')
   const [roleFilter, setRoleFilter] = useState('')
 
   const [modal,   setModal]   = useState({ open: false, mode: 'create', user: null })
-  const [confirm, setConfirm] = useState({ open: false, userId: null })
   const [form,    setForm]    = useState(EMPTY_FORM)
   const [saving,  setSaving]  = useState(false)
   const [formErr, setFormErr] = useState({})
+
+  // ── Deactivate password confirm state ─────────────────────────────────────
+  const [deactivateModal, setDeactivateModal] = useState({ open: false, userId: null, userName: '' })
+  const [adminPassword,   setAdminPassword]   = useState('')
+  const [pwdError,        setPwdError]        = useState('')
+  const [deactivating,    setDeactivating]    = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -40,20 +46,24 @@ export default function UsersPage() {
       setRoles(rRes.data.data)
     } catch (e) { toast.error(getErrorMessage(e)) }
     finally { setLoading(false) }
-  }, [search, roleFilter])
+  }, [search, roleFilter]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load() }, [load])
 
-  function openCreate() {
-    setForm(EMPTY_FORM); setFormErr({})
-    setModal({ open: true, mode: 'create', user: null })
-  }
-  function openEdit(u) {
-    setForm({ Name: u.Name, Email: u.Email, RoleName: u.RoleName })
-    setFormErr({})
-    setModal({ open: true, mode: 'edit', user: u })
-  }
+  function openCreate() { setForm(EMPTY_FORM); setFormErr({}); setModal({ open: true, mode: 'create', user: null }) }
+  function openEdit(u)  { setForm({ Name: u.Name, Email: u.Email, RoleName: u.RoleName }); setFormErr({}); setModal({ open: true, mode: 'edit', user: u }) }
   function closeModal() { setModal(m => ({ ...m, open: false })) }
+
+  function openDeactivate(u) {
+    setAdminPassword('')
+    setPwdError('')
+    setDeactivateModal({ open: true, userId: u.UserID, userName: u.Name })
+  }
+  function closeDeactivate() {
+    setDeactivateModal({ open: false, userId: null, userName: '' })
+    setAdminPassword('')
+    setPwdError('')
+  }
 
   function validate() {
     const e = {}
@@ -68,11 +78,9 @@ export default function UsersPage() {
     setSaving(true)
     try {
       if (modal.mode === 'create') {
-        await userAPI.create(form)
-        toast.success('User created')
+        await userAPI.create(form); toast.success('User created')
       } else {
-        const payload = { Name: form.Name, Email: form.Email, RoleName: form.RoleName }
-        await userAPI.update(modal.user.UserID, payload)
+        await userAPI.update(modal.user.UserID, { Name: form.Name, Email: form.Email, RoleName: form.RoleName })
         toast.success('User updated')
       }
       closeModal(); load()
@@ -81,17 +89,32 @@ export default function UsersPage() {
   }
 
   async function handleDeactivate() {
-    setSaving(true)
+    if (!adminPassword.trim()) { setPwdError('Please enter your password'); return }
+    setPwdError('')
+    setDeactivating(true)
     try {
-      await userAPI.deactivate(confirm.userId)
-      toast.success('User deactivated')
-      setConfirm({ open: false, userId: null })
+      await userAPI.deactivate(deactivateModal.userId, { AdminPassword: adminPassword })
+      toast.success(`${deactivateModal.userName} has been deactivated`)
+      closeDeactivate()
       load()
-    } catch (e) { toast.error(getErrorMessage(e)) }
-    finally { setSaving(false) }
+    } catch (e) {
+      const msg = getErrorMessage(e)
+      // Show password errors inline, other errors as toast
+      if (msg.toLowerCase().includes('password') || msg.toLowerCase().includes('incorrect')) {
+        setPwdError(msg)
+      } else {
+        toast.error(msg)
+      }
+    } finally {
+      setDeactivating(false)
+    }
   }
 
-  const roleBadge = { Admin: 'bg-purple-100 text-purple-700', 'Project Manager': 'bg-blue-100 text-blue-700', Collaborator: 'bg-gray-100 text-gray-600' }
+  const roleBadge = {
+    Admin: 'bg-purple-100 text-purple-700',
+    'Project Manager': 'bg-blue-100 text-blue-700',
+    Collaborator: 'bg-gray-100 text-gray-600',
+  }
 
   return (
     <>
@@ -158,7 +181,7 @@ export default function UsersPage() {
                     <div className="flex gap-2">
                       <Button variant="ghost" size="sm" onClick={() => openEdit(u)}>Edit</Button>
                       {u.IsActive && (
-                        <Button variant="danger" size="sm" onClick={() => setConfirm({ open: true, userId: u.UserID })}>
+                        <Button variant="danger" size="sm" onClick={() => openDeactivate(u)}>
                           Deactivate
                         </Button>
                       )}
@@ -175,16 +198,12 @@ export default function UsersPage() {
       <Modal isOpen={modal.open} onClose={closeModal} title={modal.mode === 'create' ? 'Add New User' : 'Edit User'}>
         <div className="flex flex-col gap-4">
           <Input label="Full Name" value={form.Name} onChange={e => setForm(p => ({ ...p, Name: e.target.value }))} error={formErr.Name} />
-          <Input label="Email" type="email" value={form.Email} onChange={e => setForm(p => ({ ...p, Email: e.target.value }))} error={formErr.Email} />
-
-{/* edited           */}
-
+          <Input label="Email" type="text" value={form.Email} onChange={e => setForm(p => ({ ...p, Email: e.target.value }))} error={formErr.Email} />
           {modal.mode === 'create' && (
-  <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-xs text-blue-700">
-    🔐 A secure temporary password will be automatically generated and emailed to the user. They will be required to change it on first login.
-  </div>
-)}
-
+            <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-xs text-blue-700">
+              🔐 A secure temporary password will be automatically generated and emailed to the user. They will be required to change it on first login.
+            </div>
+          )}
           <Input label="Role" as="select" value={form.RoleName} onChange={e => setForm(p => ({ ...p, RoleName: e.target.value }))}>
             <option value="Admin">Admin</option>
             <option value="Project Manager">Project Manager</option>
@@ -199,15 +218,58 @@ export default function UsersPage() {
         </div>
       </Modal>
 
-      {/* Deactivate confirm */}
-      <ConfirmDialog
-        isOpen={confirm.open}
-        onClose={() => setConfirm({ open: false, userId: null })}
-        onConfirm={handleDeactivate}
-        title="Deactivate User?"
-        message="This user will no longer be able to log in. Their data will be preserved."
-        confirmLabel="Deactivate"
-        loading={saving}
-      />    </>
+      {/* ── Deactivate password confirm modal ───────────────────────────────── */}
+      <Modal
+        isOpen={deactivateModal.open}
+        onClose={closeDeactivate}
+        title="Confirm Deactivation"
+      >
+        <div className="flex flex-col gap-4">
+          {/* Warning banner */}
+          <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 flex gap-3 items-start">
+            <span className="text-red-500 text-lg flex-shrink-0">⚠️</span>
+            <div>
+              <p className="text-sm font-semibold text-red-700 mb-0.5">
+                Deactivate {deactivateModal.userName}?
+              </p>
+              <p className="text-xs text-red-600">
+                This user will immediately lose access to TaskFlow. Their data will be preserved and they can be reactivated later.
+              </p>
+            </div>
+          </div>
+
+          {/* Admin password input */}
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-[var(--text-mid)] uppercase tracking-wide">
+              Your Admin Password
+            </label>
+            <input
+              type="password"
+              placeholder="Enter your password to confirm"
+              value={adminPassword}
+              onChange={e => { setAdminPassword(e.target.value); setPwdError('') }}
+              onKeyDown={e => e.key === 'Enter' && handleDeactivate()}
+              className={`w-full px-3 py-2 text-sm rounded-sm border transition-colors bg-white
+                focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-transparent
+                ${pwdError ? 'border-red-400' : 'border-purple-200 hover:border-purple-400'}`}
+              autoFocus
+            />
+            {pwdError && <p className="text-xs text-red-500">{pwdError}</p>}
+          </div>
+
+          <div className="flex gap-3 justify-end pt-2">
+            <Button variant="ghost" onClick={closeDeactivate}>Cancel</Button>
+            <Button
+              variant="danger"
+              onClick={handleDeactivate}
+              loading={deactivating}
+              disabled={!adminPassword.trim()}
+            >
+              Deactivate User
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </>
   )
 }

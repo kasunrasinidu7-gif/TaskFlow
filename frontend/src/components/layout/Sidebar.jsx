@@ -102,9 +102,11 @@ export default function Sidebar({ unreadCount = 0 }) {
           <Icon.Tasks /><span>Tasks</span>
         </NavLink>
 
-        <NavLink to="/kanban" className={navItemClass}>
-          <Icon.Kanban /><span>Kanban Board</span>
-        </NavLink>
+        {!hasRole('Admin') && (
+          <NavLink to="/kanban" className={navItemClass}>
+            <Icon.Kanban /><span>Kanban Board</span>
+          </NavLink>
+        )}
 
         <p className="text-[10px] text-white/30 uppercase tracking-widest font-medium px-2 pt-4 pb-1">
           Personal

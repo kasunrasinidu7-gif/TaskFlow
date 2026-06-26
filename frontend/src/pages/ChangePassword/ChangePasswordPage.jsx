@@ -15,6 +15,55 @@ import { authAPI } from '../../api/services'
 import Button from '../../components/ui/Button'
 import { getErrorMessage } from '../../utils/helpers'
 
+// ── Password strength rules ───────────────────────────────────────────────────
+const PWD_RULES = [
+  { key: 'length',  label: 'At least 8 characters',          test: p => p.length >= 8 },
+  { key: 'upper',   label: 'At least one uppercase letter',  test: p => /[A-Z]/.test(p) },
+  { key: 'lower',   label: 'At least one lowercase letter',  test: p => /[a-z]/.test(p) },
+  { key: 'symbol',  label: 'At least one symbol (!@#$…)',    test: p => /[^A-Za-z0-9]/.test(p) },
+]
+
+function getStrength(password) {
+  const passed = PWD_RULES.filter(r => r.test(password)).length
+  if (passed === 0) return { score: 0, label: '',        color: 'bg-gray-200' }
+  if (passed === 1) return { score: 1, label: 'Weak',    color: 'bg-red-400'  }
+  if (passed === 2) return { score: 2, label: 'Fair',    color: 'bg-amber-400' }
+  if (passed === 3) return { score: 3, label: 'Good',    color: 'bg-yellow-400' }
+  return               { score: 4, label: 'Strong',  color: 'bg-green-500' }
+}
+
+// ── Password strength indicator component ─────────────────────────────────────
+function StrengthIndicator({ password }) {
+  if (!password) return null
+  const { score, label, color } = getStrength(password)
+  return (
+    <div className="mt-2 flex flex-col gap-1.5">
+      {/* Bar */}
+      <div className="flex gap-1">
+        {[1, 2, 3, 4].map(i => (
+          <div
+            key={i}
+            className={`h-1 flex-1 rounded-full transition-all duration-300 ${i <= score ? color : 'bg-gray-200'}`}
+          />
+        ))}
+      </div>
+      {label && <p className={`text-xs font-medium ${score <= 1 ? 'text-red-500' : score === 2 ? 'text-amber-500' : score === 3 ? 'text-yellow-600' : 'text-green-600'}`}>{label}</p>}
+      {/* Rule checklist */}
+      <ul className="flex flex-col gap-0.5 mt-0.5">
+        {PWD_RULES.map(rule => {
+          const ok = rule.test(password)
+          return (
+            <li key={rule.key} className={`flex items-center gap-1.5 text-xs transition-colors ${ok ? 'text-green-600' : 'text-gray-400'}`}>
+              <span className="text-[10px]">{ok ? '✓' : '○'}</span>
+              {rule.label}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 // ── Eye toggle button — defined OUTSIDE the page component ───────────────────
 // Must be outside so React sees it as a stable component type across re-renders.
 function EyeBtn({ field, showPwd, setShowPwd }) {
@@ -76,11 +125,20 @@ export default function ChangePasswordPage() {
 
   function validate() {
     const e = {}
-    if (!form.CurrentPassword)                          e.CurrentPassword = 'Current password is required'
-    if (!form.NewPassword)                              e.NewPassword     = 'New password is required'
-    else if (form.NewPassword.length < 6)               e.NewPassword     = 'Minimum 6 characters'
-    else if (form.NewPassword === form.CurrentPassword) e.NewPassword     = 'New password must differ from the temporary one'
-    if (form.NewPassword !== form.ConfirmPassword)      e.ConfirmPassword = 'Passwords do not match'
+    if (!form.CurrentPassword) {
+      e.CurrentPassword = 'Current password is required'
+    }
+    if (!form.NewPassword) {
+      e.NewPassword = 'New password is required'
+    } else {
+      const failedRules = PWD_RULES.filter(r => !r.test(form.NewPassword))
+      if (failedRules.length > 0) {
+        e.NewPassword = failedRules[0].label
+      } else if (form.NewPassword === form.CurrentPassword) {
+        e.NewPassword = 'New password must differ from the temporary one'
+      }
+    }
+    if (form.NewPassword !== form.ConfirmPassword) e.ConfirmPassword = 'Passwords do not match'
     return e
   }
 
@@ -153,11 +211,12 @@ export default function ChangePasswordPage() {
             <PwdField
               id="NewPassword" field="new"
               label="New Password"
-              placeholder="At least 6 characters"
+              placeholder="Min 8 chars, uppercase, symbol"
               form={form} setForm={setForm}
               errors={errors}
               showPwd={showPwd} setShowPwd={setShowPwd}
             />
+            <StrengthIndicator password={form.NewPassword} />
             <PwdField
               id="ConfirmPassword" field="confirm"
               label="Confirm New Password"

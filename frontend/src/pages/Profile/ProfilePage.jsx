@@ -1,4 +1,47 @@
-// src/pages/Profile/ProfilePage.jsx
+// ── Password strength rules ───────────────────────────────────────────────────
+const PWD_RULES = [
+  { key: 'length',  label: 'At least 8 characters',          test: p => p.length >= 8 },
+  { key: 'upper',   label: 'At least one uppercase letter',  test: p => /[A-Z]/.test(p) },
+  { key: 'lower',   label: 'At least one lowercase letter',  test: p => /[a-z]/.test(p) },
+  { key: 'symbol',  label: 'At least one symbol (!@#$…)',    test: p => /[^A-Za-z0-9]/.test(p) },
+]
+
+function getStrength(password) {
+  const passed = PWD_RULES.filter(r => r.test(password)).length
+  if (passed === 0) return { score: 0, label: '',       color: 'bg-gray-200' }
+  if (passed === 1) return { score: 1, label: 'Weak',   color: 'bg-red-400'  }
+  if (passed === 2) return { score: 2, label: 'Fair',   color: 'bg-amber-400' }
+  if (passed === 3) return { score: 3, label: 'Good',   color: 'bg-yellow-400' }
+  return               { score: 4, label: 'Strong', color: 'bg-green-500' }
+}
+
+function StrengthIndicator({ password }) {
+  if (!password) return null
+  const { score, label, color } = getStrength(password)
+  return (
+    <div className="mt-2 flex flex-col gap-1.5">
+      <div className="flex gap-1">
+        {[1, 2, 3, 4].map(i => (
+          <div key={i} className={`h-1 flex-1 rounded-full transition-all duration-300 ${i <= score ? color : 'bg-gray-200'}`} />
+        ))}
+      </div>
+      {label && <p className={`text-xs font-medium ${score <= 1 ? 'text-red-500' : score === 2 ? 'text-amber-500' : score === 3 ? 'text-yellow-600' : 'text-green-600'}`}>{label}</p>}
+      <ul className="flex flex-col gap-0.5 mt-0.5">
+        {PWD_RULES.map(rule => {
+          const ok = rule.test(password)
+          return (
+            <li key={rule.key} className={`flex items-center gap-1.5 text-xs transition-colors ${ok ? 'text-green-600' : 'text-gray-400'}`}>
+              <span className="text-[10px]">{ok ? '✓' : '○'}</span>
+              {rule.label}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Profile Page — available to ALL roles.
 //
@@ -99,8 +142,12 @@ export default function ProfilePage() {
   function validatePwd() {
     const e = {}
     if (!pwdForm.CurrentPassword)                          e.CurrentPassword = 'Current password is required'
-    if (!pwdForm.NewPassword)                              e.NewPassword     = 'New password is required'
-    else if (pwdForm.NewPassword.length < 6)               e.NewPassword     = 'Minimum 6 characters'
+    if (!pwdForm.NewPassword) {
+      e.NewPassword = 'New password is required'
+    } else {
+      const failedRules = PWD_RULES.filter(r => !r.test(pwdForm.NewPassword))
+      if (failedRules.length > 0) e.NewPassword = failedRules[0].label
+    }
     if (pwdForm.NewPassword !== pwdForm.ConfirmPassword)   e.ConfirmPassword = 'Passwords do not match'
     return e
   }
@@ -207,7 +254,7 @@ export default function ProfilePage() {
 
       {/* ── Change password form ──────────────────────────────────────────── */}
       <div className="mt-5">
-        <Card title="Change Password" subtitle="Choose a strong password with at least 6 characters">
+        <Card title="Change Password" subtitle="Must be 8+ characters with uppercase, lowercase, and a symbol">
           <form onSubmit={handlePasswordChange} className="flex flex-col gap-4">
 
             {/* Current password */}
@@ -234,7 +281,7 @@ export default function ProfilePage() {
               <div className="relative">
                 <input
                   type={showPwd.new ? 'text' : 'password'}
-                  placeholder="At least 6 characters"
+                  placeholder="Min 8 chars, uppercase, symbol"
                   value={pwdForm.NewPassword}
                   onChange={e => setPwdForm(p => ({ ...p, NewPassword: e.target.value }))}
                   className={`w-full px-3 py-2 pr-10 text-sm rounded-sm border transition-colors bg-white
@@ -244,6 +291,7 @@ export default function ProfilePage() {
                 <EyeToggle field="new" showPwd={showPwd} setShowPwd={setShowPwd} />
               </div>
               {pwdErrors.NewPassword && <p className="text-xs text-red-500">{pwdErrors.NewPassword}</p>}
+              <StrengthIndicator password={pwdForm.NewPassword} />
             </div>
 
             {/* Confirm password */}

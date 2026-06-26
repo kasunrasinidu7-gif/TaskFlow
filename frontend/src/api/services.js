@@ -27,7 +27,7 @@ export const userAPI = {
   getOne:        (id)                => api.get(`/users/${id}`),
   create:        (data)              => api.post('/users', data),
   update:        (id, data)          => api.put(`/users/${id}`, data),
-  deactivate:    (id)                => api.patch(`/users/${id}/deactivate`),
+  deactivate:    (id, data)           => api.patch(`/users/${id}/deactivate`, data),
   getRoles:      ()                  => api.get('/users/roles'),
   getAssignable: (projectId)         => api.get('/users/assignable', { params: projectId ? { projectId } : {} }),
 }
@@ -38,7 +38,7 @@ export const projectAPI = {
   getOne:       (id)         => api.get(`/projects/${id}`),
   create:       (data)       => api.post('/projects', data),
   update:       (id, data)   => api.put(`/projects/${id}`, data),
-  delete:       (id)         => api.delete(`/projects/${id}`),
+  delete:       (id, data)   => api.delete(`/projects/${id}`, { data }),
   addMember:    (id, data)   => api.post(`/projects/${id}/members`, data),
   removeMember: (id, userId) => api.delete(`/projects/${id}/members/${userId}`),
 }
@@ -51,7 +51,7 @@ export const taskAPI = {
   create:       (data)            => api.post('/tasks', data),
   update:       (id, data)        => api.put(`/tasks/${id}`, data),
   updateStatus: (id, status)      => api.patch(`/tasks/${id}/status`, { Status: status }),
-  delete:       (id)              => api.delete(`/tasks/${id}`),
+  delete:       (id, data)        => api.delete(`/tasks/${id}`, { data }),
   assign:       (id, data)        => api.post(`/tasks/${id}/assign`, data),
   unassign:     (id, userId)      => api.delete(`/tasks/${id}/assign/${userId}`),
   getByProject: (projectId)       => api.get(`/tasks/by-project/${projectId}`),

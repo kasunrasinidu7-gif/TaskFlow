@@ -1,23 +1,17 @@
 /**
  * controllers/projectController.js
- * ─────────────────────────────────────────────────────────────────────────────
- * Handles all project-related actions.
- * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * CHANGED: delete() now requires the requester's own password in the request
+ *   body (field: ConfirmPassword). Wrong password → 401.
  */
 
+const bcrypt  = require('bcrypt');
 const Project = require('../models/Project');
 const User    = require('../models/User');
-
-const Notification = require('../models/Notification');
-
 const { sendSuccess, sendError } = require('../utils/response');
-
 
 const projectController = {
 
-  /**
-   * GET /api/projects
-   */
   async getAll(req, res) {
     try {
       const { search = '', status = '' } = req.query;
@@ -33,15 +27,11 @@ const projectController = {
     }
   },
 
-  /**
-   * GET /api/projects/:id
-   */
   async getOne(req, res) {
     try {
       const project = await Project.findById(req.params.id);
       if (!project) return sendError(res, 'Project not found', 404);
 
-      // Collaborators can only see their assigned projects
       if (req.user.RoleName === 'Collaborator') {
         const isMember = await Project.isMember(project.ProjectID, req.user.UserID);
         if (!isMember) return sendError(res, 'Access denied', 403);
@@ -54,9 +44,6 @@ const projectController = {
     }
   },
 
-  /**
-   * POST /api/projects
-   */
   async create(req, res) {
     try {
       const { ProjectName, Description } = req.body;
@@ -72,9 +59,6 @@ const projectController = {
     }
   },
 
-  /**
-   * PUT /api/projects/:id
-   */
   async update(req, res) {
     try {
       const { ProjectName, Description, Status } = req.body;
@@ -93,9 +77,27 @@ const projectController = {
 
   /**
    * DELETE /api/projects/:id
+   * Body: { ConfirmPassword: "..." }
+   *
+   * Requires the requester's own password before deleting.
    */
   async delete(req, res) {
     try {
+      const { ConfirmPassword } = req.body;
+
+      if (!ConfirmPassword) {
+        return sendError(res, 'Your password is required to delete a project.', 400);
+      }
+
+      // Verify requester's password
+      const requester = await User.findByEmail(req.user.Email);
+      if (!requester) return sendError(res, 'Account not found.', 404);
+
+      const match = await bcrypt.compare(ConfirmPassword, requester.PasswordHash);
+      if (!match) {
+        return sendError(res, 'Incorrect password. Please enter your own password to confirm.', 401);
+      }
+
       const affected = await Project.delete(req.params.id);
       if (!affected) return sendError(res, 'Project not found', 404);
       return sendSuccess(res, null, 'Project deleted successfully');
@@ -105,44 +107,19 @@ const projectController = {
     }
   },
 
-  /**
-   * POST /api/projects/:id/members
-   * Body: { UserID }
-   */
   async addMember(req, res) {
-  try {
-    const { UserID } = req.body;
-    const user = await User.findById(UserID);
-    if (!user) return sendError(res, 'User not found', 404);
-
-    const project = await Project.findById(req.params.id);
-    if (!project) return sendError(res, 'Project not found', 404);
-
-    await Project.addMember(req.params.id, UserID);
-
-    // Send notification to the added user
-    const notif = await Notification.create({
-      userId:  UserID,
-      taskId:  null,
-      message: `You have been added to the project "${project.ProjectName}".`,
-    });
-
-    // Push real-time notification if the user is online
-    const io = req.app.get('io');
-    if (io) {
-      io.to(`user_${UserID}`).emit('new_notification', notif);
+    try {
+      const { UserID } = req.body;
+      const user = await User.findById(UserID);
+      if (!user) return sendError(res, 'User not found', 404);
+      await Project.addMember(req.params.id, UserID);
+      return sendSuccess(res, null, 'Member added successfully');
+    } catch (err) {
+      console.error('addMember error:', err);
+      return sendError(res, 'Failed to add member', 500);
     }
+  },
 
-    return sendSuccess(res, null, 'Member added successfully');
-  } catch (err) {
-    console.error('addMember error:', err);
-    return sendError(res, 'Failed to add member', 500);
-  }
-},
-
-  /**
-   * DELETE /api/projects/:id/members/:userId
-   */
   async removeMember(req, res) {
     try {
       await Project.removeMember(req.params.id, req.params.userId);

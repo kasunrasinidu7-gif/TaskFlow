@@ -8,6 +8,7 @@
  * ADDED: unassign — removes a user from a task.
  */
 
+const bcrypt       = require('bcrypt');
 const Task         = require('../models/Task');
 const Notification = require('../models/Notification');
 const User         = require('../models/User');
@@ -141,6 +142,21 @@ const taskController = {
 
   async delete(req, res) {
     try {
+      const { ConfirmPassword } = req.body;
+
+      if (!ConfirmPassword) {
+        return sendError(res, 'Your password is required to delete a task.', 400);
+      }
+
+      // Verify requester password
+      const requester = await User.findByEmail(req.user.Email);
+      if (!requester) return sendError(res, 'Account not found.', 404);
+
+      const match = await bcrypt.compare(ConfirmPassword, requester.PasswordHash);
+      if (!match) {
+        return sendError(res, 'Incorrect password. Please enter your own password to confirm.', 401);
+      }
+
       const affected = await Task.delete(req.params.id);
       if (!affected) return sendError(res, 'Task not found', 404);
       return sendSuccess(res, null, 'Task deleted successfully');
